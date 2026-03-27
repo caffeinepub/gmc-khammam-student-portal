@@ -45,7 +45,6 @@ export interface MarksRecord {
     marksType: AttendanceType;
     studentReg: string;
     subjectId: string;
-    examinationName: string;
 }
 export interface Notification {
     id: string;

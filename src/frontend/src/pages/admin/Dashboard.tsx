@@ -1472,7 +1472,6 @@ function ManageMarks() {
   const [editMarksForm, setEditMarksForm] = useState({
     paper1: "",
     paper2: "",
-    examinationName: "",
   });
   const [marksForm, setMarksForm] = useState({
     registrationNumber: "",
@@ -1480,7 +1479,6 @@ function ManageMarks() {
     type: "theory",
     paper1: "",
     paper2: "",
-    examinationName: "",
   });
 
   const [marksTypeFilter, setMarksTypeFilter] = useState("all");
@@ -1491,7 +1489,6 @@ function ManageMarks() {
     studentName: string;
     registrationNumber: string;
     subject: string;
-    examinationName: string;
     theoryPaper1: string;
     theoryPaper2: string;
     practicalMarks: string;
@@ -1503,7 +1500,6 @@ function ManageMarks() {
     marksType: AttendanceType;
     paper1: bigint;
     paper2: bigint;
-    examinationName: string;
   };
 
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
@@ -1540,7 +1536,6 @@ function ManageMarks() {
         studentName,
         registrationNumber,
         subject: subjectName,
-        examinationName: "",
         theoryPaper1: theoryP1,
         theoryPaper2: theoryP2,
         practicalMarks: practicalM,
@@ -1556,7 +1551,6 @@ function ManageMarks() {
           marksType: AttendanceType.theory,
           paper1: BigInt(theoryP1 !== "-" ? Math.round(Number(theoryP1)) : 0),
           paper2: BigInt(theoryP2 !== "-" ? Math.round(Number(theoryP2)) : 0),
-          examinationName: "",
         });
       }
       if (practicalM !== "-") {
@@ -1568,7 +1562,6 @@ function ManageMarks() {
             practicalM !== "-" ? Math.round(Number(practicalM)) : 0,
           ),
           paper2: BigInt(0),
-          examinationName: "",
         });
       }
     }
@@ -1580,12 +1573,7 @@ function ManageMarks() {
   const handleConfirmUpload = async () => {
     setConfirming(true);
     try {
-      await bulkUpsert(
-        parsedRecords.map(({ examinationName: _exam, ...r }) => ({
-          ...r,
-          examinationName: "",
-        })),
-      );
+      await bulkUpsert(parsedRecords.map((r) => r));
       toast.success(`${parsedRecords.length} marks record(s) uploaded!`);
       setPreviewRows([]);
       setParsedRecords([]);
@@ -1622,7 +1610,6 @@ function ManageMarks() {
               : AttendanceType.theory,
           paper1: BigInt(marksForm.paper1 || "0"),
           paper2: BigInt(marksForm.paper2 || "0"),
-          examinationName: "",
         },
       ]);
       toast.success("Marks added successfully!");
@@ -1632,7 +1619,6 @@ function ManageMarks() {
         type: "theory",
         paper1: "",
         paper2: "",
-        examinationName: "",
       });
     } catch {
       toast.error("Failed to add marks.");
@@ -1988,7 +1974,6 @@ function ManageMarks() {
                               <TableHead>Student Reg</TableHead>
                               <TableHead>Subject</TableHead>
                               <TableHead>Type</TableHead>
-                              <TableHead>Exam Name</TableHead>
                               <TableHead>Paper 1</TableHead>
                               <TableHead>Paper 2 / Practical</TableHead>
                               <TableHead>Actions</TableHead>
@@ -2015,26 +2000,7 @@ function ManageMarks() {
                                   <TableCell className="capitalize">
                                     {r.marksType}
                                   </TableCell>
-                                  <TableCell>
-                                    {isEditing ? (
-                                      <Input
-                                        value={editMarksForm.examinationName}
-                                        onChange={(e) =>
-                                          setEditMarksForm((f) => ({
-                                            ...f,
-                                            examinationName: e.target.value,
-                                          }))
-                                        }
-                                        className="h-8 w-40"
-                                      />
-                                    ) : (
-                                      r.examinationName || (
-                                        <span className="text-muted-foreground text-xs">
-                                          —
-                                        </span>
-                                      )
-                                    )}
-                                  </TableCell>
+
                                   <TableCell>
                                     {isEditing ? (
                                       <Input
@@ -2103,19 +2069,14 @@ function ManageMarks() {
                                           data-ocid={`marks.save_button.${i + 1}`}
                                           onClick={async () => {
                                             try {
-                                              const {
-                                                examinationName: _en,
-                                                ...rClean
-                                              } = r as any;
                                               await updateMarks({
-                                                ...rClean,
+                                                ...r,
                                                 paper1: BigInt(
                                                   editMarksForm.paper1 || "0",
                                                 ),
                                                 paper2: BigInt(
                                                   editMarksForm.paper2 || "0",
                                                 ),
-                                                examinationName: "",
                                               });
                                               toast.success("Updated!");
                                               setEditingMarksKey(null);
@@ -2148,8 +2109,6 @@ function ManageMarks() {
                                             setEditMarksForm({
                                               paper1: String(r.paper1),
                                               paper2: String(r.paper2),
-                                              examinationName:
-                                                r.examinationName,
                                             });
                                           }}
                                         >
@@ -3424,7 +3383,6 @@ function StudentDetailEditor({ reg }: { reg: string }) {
           marksType: AttendanceType.theory,
           paper1: BigInt(Number(row.theoryPaper1) || 0),
           paper2: BigInt(Number(row.theoryPaper2) || 0),
-          examinationName: "",
         },
         {
           studentReg: reg,
@@ -3432,7 +3390,6 @@ function StudentDetailEditor({ reg }: { reg: string }) {
           marksType: AttendanceType.practical,
           paper1: BigInt(Number(row.practMarks) || 0),
           paper2: BigInt(0),
-          examinationName: "",
         },
       ]);
       await Promise.all([

@@ -148,14 +148,6 @@ function SubjectCard({ sa, index }: { sa: any; index: number }) {
             threshold={80}
           />
           <div className="mt-2">
-            {sa.theoryMarks?.examinationName && (
-              <div className="text-xs text-muted-foreground mb-1 font-medium">
-                Theory Exam:{" "}
-                <span className="text-foreground">
-                  {sa.theoryMarks.examinationName}
-                </span>
-              </div>
-            )}
             <div className="flex flex-wrap gap-2 mb-2">
               <MarksDisplay
                 label="Theory Paper 1"
@@ -168,14 +160,6 @@ function SubjectCard({ sa, index }: { sa: any; index: number }) {
                 threshold={40}
               />
             </div>
-            {sa.practicalMarks?.examinationName && (
-              <div className="text-xs text-muted-foreground mb-1 font-medium">
-                Practical Exam:{" "}
-                <span className="text-foreground">
-                  {sa.practicalMarks.examinationName}
-                </span>
-              </div>
-            )}
             <div className="flex flex-wrap gap-2">
               <MarksDisplay
                 label="Practical Marks"

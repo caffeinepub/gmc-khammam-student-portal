@@ -69,14 +69,23 @@ actor {
     paper2 : Nat;
   };
 
-  // V3: adds examinationName -- current active type
-  public type MarksRecord = {
+  // V3: had examinationName -- kept for stable migration only
+  public type MarksRecordV3 = {
     studentReg : Text;
     subjectId : Text;
     marksType : AttendanceType;
     paper1 : Nat;
     paper2 : Nat;
     examinationName : Text;
+  };
+
+  // V4 (current): no examinationName
+  public type MarksRecord = {
+    studentReg : Text;
+    subjectId : Text;
+    marksType : AttendanceType;
+    paper1 : Nat;
+    paper2 : Nat;
   };
 
   public type AnnouncementCategory = {
@@ -156,9 +165,10 @@ actor {
   stable var students = Map.empty<Text, Student>();
   stable var subjects = Map.empty<Text, Subject>();
   stable var attendance = Map.empty<Text, AttendanceRecord>();
-  stable var marks = Map.empty<Text, MarksRecordV1>();     // V1 legacy, kept for migration
-  stable var marks_v2 = Map.empty<Text, MarksRecordV2>(); // V2 legacy, kept for migration
-  stable var marks_v3 = Map.empty<Text, MarksRecord>();   // V3 current (with examinationName)
+  stable var marks = Map.empty<Text, MarksRecordV1>();     // V1 legacy
+  stable var marks_v2 = Map.empty<Text, MarksRecordV2>(); // V2 legacy
+  stable var marks_v3 = Map.empty<Text, MarksRecordV3>(); // V3 legacy (had examinationName)
+  stable var marks_v4 = Map.empty<Text, MarksRecord>();   // V4 current (no examinationName)
   stable var announcements = Map.empty<Text, Announcement>();
   stable var notifications = Map.empty<Text, Notification>();
   stable var queries = Map.empty<Text, StudentQuery>();
@@ -245,10 +255,10 @@ actor {
           let practicalAttendance = attendance.values().toArray().find(
             func(r) { r.studentReg == registrationNumber and (r.subjectId == subject.id or r.subjectId.toLower() == subjectNameLower) and typeToText(r.attendanceType) == "practical" }
           );
-          let theoryMarks = marks_v3.values().toArray().find(
+          let theoryMarks = marks_v4.values().toArray().find(
             func(r) { r.studentReg == registrationNumber and (r.subjectId == subject.id or r.subjectId.toLower() == subjectNameLower) and typeToText(r.marksType) == "theory" }
           );
-          let practicalMarks = marks_v3.values().toArray().find(
+          let practicalMarks = marks_v4.values().toArray().find(
             func(r) { r.studentReg == registrationNumber and (r.subjectId == subject.id or r.subjectId.toLower() == subjectNameLower) and typeToText(r.marksType) == "practical" }
           );
           list.add({ subject; theoryAttendance; practicalAttendance; theoryMarks; practicalMarks });
@@ -325,23 +335,23 @@ actor {
   // ── Admin: Marks ───────────────────────────────────────────────────────────
 
   public query func listAllMarks() : async [MarksRecord] {
-    marks_v3.values().toArray();
+    marks_v4.values().toArray();
   };
 
   public shared func bulkUpsertMarks(records : [MarksRecord]) : async () {
     for (record in records.values()) {
       let key = record.studentReg # "|" # record.subjectId # "|" # typeToText(record.marksType);
-      marks_v3.add(key, record);
+      marks_v4.add(key, record);
     };
   };
 
   public shared func updateMarks(record : MarksRecord) : async () {
     let key = record.studentReg # "|" # record.subjectId # "|" # typeToText(record.marksType);
-    marks_v3.add(key, record);
+    marks_v4.add(key, record);
   };
 
   public shared func deleteMarks(key : Text) : async () {
-    marks_v3.remove(key);
+    marks_v4.remove(key);
   };
 
   // ── Admin: Announcements ───────────────────────────────────────────────────
@@ -429,32 +439,43 @@ actor {
   system func postupgrade() {
     secondaryAdmins.add("GMC", "gmc123");
 
-    // Migrate V1 marks (single marks field) -> marks_v3
+    // Migrate V1 marks -> marks_v4
     for (rec in marks.values()) {
       let key = rec.studentReg # "|" # rec.subjectId # "|" # typeToText(rec.marksType);
-      marks_v3.add(key, {
+      marks_v4.add(key, {
         studentReg = rec.studentReg;
         subjectId = rec.subjectId;
         marksType = rec.marksType;
         paper1 = rec.marks;
         paper2 = 0;
-        examinationName = "";
       });
     };
     marks := Map.empty<Text, MarksRecordV1>();
 
-    // Migrate V2 marks (paper1/paper2, no examinationName) -> marks_v3
+    // Migrate V2 marks -> marks_v4
     for (rec in marks_v2.values()) {
       let key = rec.studentReg # "|" # rec.subjectId # "|" # typeToText(rec.marksType);
-      marks_v3.add(key, {
+      marks_v4.add(key, {
         studentReg = rec.studentReg;
         subjectId = rec.subjectId;
         marksType = rec.marksType;
         paper1 = rec.paper1;
         paper2 = rec.paper2;
-        examinationName = "";
       });
     };
     marks_v2 := Map.empty<Text, MarksRecordV2>();
+
+    // Migrate V3 marks (had examinationName) -> marks_v4
+    for (rec in marks_v3.values()) {
+      let key = rec.studentReg # "|" # rec.subjectId # "|" # typeToText(rec.marksType);
+      marks_v4.add(key, {
+        studentReg = rec.studentReg;
+        subjectId = rec.subjectId;
+        marksType = rec.marksType;
+        paper1 = rec.paper1;
+        paper2 = rec.paper2;
+      });
+    };
+    marks_v3 := Map.empty<Text, MarksRecordV3>();
   };
 };
