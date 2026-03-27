@@ -34,6 +34,29 @@ function parseContent(content: string): {
   return { text: content };
 }
 
+function openPdf(dataUrl: string) {
+  try {
+    // Convert base64 data URL to Blob so browsers can open it in a new tab
+    const [header, base64] = dataUrl.split(",");
+    const mime = header.match(/:(.*?);/)?.[1] ?? "application/pdf";
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: mime });
+    const blobUrl = URL.createObjectURL(blob);
+    const win = window.open(blobUrl, "_blank");
+    // Revoke the object URL after a delay to free memory
+    if (win) {
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    }
+  } catch {
+    // Fallback: try opening data URL directly
+    window.open(dataUrl, "_blank");
+  }
+}
+
 export default function Announcements() {
   const { data: announcements, isLoading } = useAnnouncements();
 
@@ -98,7 +121,7 @@ export default function Announcements() {
                           variant="outline"
                           size="sm"
                           className="mt-3 gap-2"
-                          onClick={() => window.open(pdfData, "_blank")}
+                          onClick={() => openPdf(pdfData)}
                         >
                           <FileText size={14} />
                           {pdfName ? `Open: ${pdfName}` : "Open PDF"}

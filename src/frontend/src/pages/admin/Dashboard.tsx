@@ -30,6 +30,7 @@ import {
   CheckCircle,
   ChevronRight,
   ClipboardList,
+  Download,
   Eye,
   FileText,
   LayoutDashboard,
@@ -715,6 +716,10 @@ function ManageAttendance() {
     attendedClasses: "",
   });
 
+  const [attTypeFilter, setAttTypeFilter] = useState("all");
+  const [attPage, setAttPage] = useState(1);
+  const ATT_PAGE_SIZE = 20;
+
   type AttPreviewRow = {
     studentName: string;
     subject: string;
@@ -722,6 +727,7 @@ function ManageAttendance() {
     attendedClasses: string;
     totalClasses: string;
     percentage: string;
+    subjectFound: boolean;
   };
   type AttParsedRecord = {
     studentReg: string;
@@ -778,6 +784,7 @@ function ManageAttendance() {
         attendedClasses: attended,
         totalClasses: total,
         percentage,
+        subjectFound: !!matched,
       });
       records.push({
         studentReg: studentName,
@@ -851,6 +858,28 @@ function ManageAttendance() {
     } catch {
       toast.error("Failed to add attendance record.");
     }
+  };
+
+  const downloadAttTemplate = () => {
+    const XL = (window as any).XLSX;
+    if (!XL) {
+      toast.error("Template download not ready yet. Try again in a moment.");
+      return;
+    }
+    const ws = XL.utils.aoa_to_sheet([
+      [
+        "Student Name",
+        "Subject",
+        "Type",
+        "Attended Classes",
+        "Total Classes",
+        "Percentage",
+      ],
+      ["John Doe", "Anatomy", "theory", 45, 60, 75],
+    ]);
+    const wb = XL.utils.book_new();
+    XL.utils.book_append_sheet(wb, ws, "Attendance Template");
+    XL.writeFile(wb, "attendance_template.xlsx");
   };
 
   return (
@@ -998,6 +1027,17 @@ function ManageAttendance() {
               </div>
             </CardContent>
           </Card>
+          <div className="flex justify-end mb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadAttTemplate}
+              data-ocid="attendance.upload_button"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download Template
+            </Button>
+          </div>
           <ExcelUploadCard
             title="Bulk Upload Attendance"
             instructions="Type should be 'theory' or 'practical'. Subject must match an added subject name."
@@ -1067,6 +1107,9 @@ function ManageAttendance() {
                         <th className="px-3 py-2 text-left font-medium">
                           Percentage
                         </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Status
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1092,6 +1135,13 @@ function ManageAttendance() {
                             >
                               {row.percentage}%
                             </td>
+                            <td className="px-3 py-2">
+                              {!row.subjectFound && (
+                                <span className="inline-flex items-center gap-1 text-orange-600 text-xs font-medium bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
+                                  ⚠ Subject not found
+                                </span>
+                              )}
+                            </td>
                           </tr>
                         );
                       })}
@@ -1109,13 +1159,34 @@ function ManageAttendance() {
               <CardTitle>All Attendance Records</CardTitle>
             </CardHeader>
             <CardContent>
-              <Input
-                data-ocid="attendance.search_input"
-                placeholder="Search by registration number or subject..."
-                value={attSearch}
-                onChange={(e) => setAttSearch(e.target.value)}
-                className="mb-4"
-              />
+              <div className="flex flex-wrap gap-3 mb-3">
+                <Input
+                  data-ocid="attendance.search_input"
+                  placeholder="Search by registration number or subject..."
+                  value={attSearch}
+                  onChange={(e) => {
+                    setAttSearch(e.target.value);
+                    setAttPage(1);
+                  }}
+                  className="flex-1 min-w-[200px]"
+                />
+                <Select
+                  value={attTypeFilter}
+                  onValueChange={(v) => {
+                    setAttTypeFilter(v);
+                    setAttPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-40" data-ocid="attendance.select">
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="theory">Theory</SelectItem>
+                    <SelectItem value="practical">Practical</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {!allAttendance ? (
                 <div
                   data-ocid="attendance.loading_state"
@@ -1125,192 +1196,244 @@ function ManageAttendance() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Student Reg</TableHead>
-                        <TableHead>Subject</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Attended</TableHead>
-                        <TableHead>Conducted</TableHead>
-                        <TableHead>Percentage</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {allAttendance
-                        .filter((r) => {
-                          const subjectName =
-                            (subjects ?? []).find((s) => s.id === r.subjectId)
-                              ?.name ?? r.subjectId;
-                          const search = attSearch.toLowerCase();
-                          return (
-                            r.studentReg.toLowerCase().includes(search) ||
-                            subjectName.toLowerCase().includes(search)
-                          );
-                        })
-                        .map((r, i) => {
-                          const subjectName =
-                            (subjects ?? []).find((s) => s.id === r.subjectId)
-                              ?.name ?? r.subjectId;
-                          const key = `${r.studentReg}|${r.subjectId}|${r.attendanceType}`;
-                          const pct =
-                            Number(r.conductedClasses) > 0
-                              ? (Number(r.attendedClasses) /
-                                  Number(r.conductedClasses)) *
-                                100
-                              : 0;
-                          const threshold =
-                            r.attendanceType === "practical" ? 80 : 75;
-                          const isLow = pct < threshold;
-                          const isEditing = editingAttKey === key;
-                          return (
-                            <TableRow
-                              key={key}
-                              data-ocid={`attendance.item.${i + 1}`}
-                              className={isLow ? "bg-destructive/5" : ""}
-                            >
-                              <TableCell>{r.studentReg}</TableCell>
-                              <TableCell>{subjectName}</TableCell>
-                              <TableCell className="capitalize">
-                                {r.attendanceType}
-                              </TableCell>
-                              <TableCell>
-                                {isEditing ? (
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    value={editAttForm.attendedClasses}
-                                    onChange={(e) =>
-                                      setEditAttForm((f) => ({
-                                        ...f,
-                                        attendedClasses: e.target.value,
-                                      }))
-                                    }
-                                    className="h-8 w-20"
-                                  />
-                                ) : (
-                                  String(r.attendedClasses)
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {isEditing ? (
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    value={editAttForm.conductedClasses}
-                                    onChange={(e) =>
-                                      setEditAttForm((f) => ({
-                                        ...f,
-                                        conductedClasses: e.target.value,
-                                      }))
-                                    }
-                                    className="h-8 w-20"
-                                  />
-                                ) : (
-                                  String(r.conductedClasses)
-                                )}
-                              </TableCell>
-                              <TableCell
-                                className={
-                                  isLow ? "text-destructive font-semibold" : ""
-                                }
-                              >
-                                {pct.toFixed(1)}%
-                              </TableCell>
-                              <TableCell>
-                                {isEditing ? (
-                                  <div className="flex gap-1">
-                                    <Button
-                                      size="sm"
-                                      data-ocid={`attendance.save_button.${i + 1}`}
-                                      onClick={async () => {
-                                        try {
-                                          await updateAttendance({
-                                            ...r,
-                                            attendedClasses: BigInt(
-                                              editAttForm.attendedClasses,
-                                            ),
-                                            conductedClasses: BigInt(
-                                              editAttForm.conductedClasses,
-                                            ),
-                                          });
-                                          toast.success("Updated!");
-                                          setEditingAttKey(null);
-                                        } catch {
-                                          toast.error("Failed to update.");
-                                        }
-                                      }}
-                                    >
-                                      Save
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      data-ocid={`attendance.cancel_button.${i + 1}`}
-                                      onClick={() => setEditingAttKey(null)}
-                                    >
-                                      Cancel
-                                    </Button>
-                                  </div>
-                                ) : (
-                                  <div className="flex gap-1">
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      data-ocid={`attendance.edit_button.${i + 1}`}
-                                      onClick={() => {
-                                        setEditingAttKey(key);
-                                        setEditAttForm({
-                                          attendedClasses: String(
-                                            r.attendedClasses,
-                                          ),
-                                          conductedClasses: String(
-                                            r.conductedClasses,
-                                          ),
-                                        });
-                                      }}
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="text-destructive hover:text-destructive"
-                                      data-ocid={`attendance.delete_button.${i + 1}`}
-                                      onClick={async () => {
-                                        if (
-                                          !confirm(
-                                            "Delete this attendance record?",
-                                          )
-                                        )
-                                          return;
-                                        try {
-                                          await deleteAttendance(key);
-                                          toast.success("Deleted!");
-                                        } catch {
-                                          toast.error("Failed to delete.");
-                                        }
-                                      }}
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                )}
-                              </TableCell>
+                  {(() => {
+                    const filtered = allAttendance.filter((r) => {
+                      const subjectName =
+                        (subjects ?? []).find((s) => s.id === r.subjectId)
+                          ?.name ?? r.subjectId;
+                      const search = attSearch.toLowerCase();
+                      const matchesSearch =
+                        r.studentReg.toLowerCase().includes(search) ||
+                        subjectName.toLowerCase().includes(search);
+                      const matchesType =
+                        attTypeFilter === "all" ||
+                        r.attendanceType === attTypeFilter;
+                      return matchesSearch && matchesType;
+                    });
+                    const totalPages = Math.max(
+                      1,
+                      Math.ceil(filtered.length / ATT_PAGE_SIZE),
+                    );
+                    const paginated = filtered.slice(
+                      (attPage - 1) * ATT_PAGE_SIZE,
+                      attPage * ATT_PAGE_SIZE,
+                    );
+                    return (
+                      <>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Showing {paginated.length} of {filtered.length}{" "}
+                          records
+                        </p>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Student Reg</TableHead>
+                              <TableHead>Subject</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Attended</TableHead>
+                              <TableHead>Conducted</TableHead>
+                              <TableHead>Percentage</TableHead>
+                              <TableHead>Actions</TableHead>
                             </TableRow>
-                          );
-                        })}
-                    </TableBody>
-                  </Table>
-                  {allAttendance.length === 0 && (
-                    <div
-                      data-ocid="attendance.empty_state"
-                      className="text-center py-8 text-muted-foreground"
-                    >
-                      No attendance records yet.
-                    </div>
-                  )}
+                          </TableHeader>
+                          <TableBody>
+                            {paginated.map((r, i) => {
+                              const subjectName =
+                                (subjects ?? []).find(
+                                  (s) => s.id === r.subjectId,
+                                )?.name ?? r.subjectId;
+                              const key = `${r.studentReg}|${r.subjectId}|${r.attendanceType}`;
+                              const pct =
+                                Number(r.conductedClasses) > 0
+                                  ? (Number(r.attendedClasses) /
+                                      Number(r.conductedClasses)) *
+                                    100
+                                  : 0;
+                              const threshold =
+                                r.attendanceType === "practical" ? 80 : 75;
+                              const isLow = pct < threshold;
+                              const isEditing = editingAttKey === key;
+                              return (
+                                <TableRow
+                                  key={key}
+                                  data-ocid={`attendance.item.${i + 1}`}
+                                  className={isLow ? "bg-destructive/5" : ""}
+                                >
+                                  <TableCell>{r.studentReg}</TableCell>
+                                  <TableCell>{subjectName}</TableCell>
+                                  <TableCell className="capitalize">
+                                    {r.attendanceType}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        value={editAttForm.attendedClasses}
+                                        onChange={(e) =>
+                                          setEditAttForm((f) => ({
+                                            ...f,
+                                            attendedClasses: e.target.value,
+                                          }))
+                                        }
+                                        className="h-8 w-20"
+                                      />
+                                    ) : (
+                                      String(r.attendedClasses)
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        value={editAttForm.conductedClasses}
+                                        onChange={(e) =>
+                                          setEditAttForm((f) => ({
+                                            ...f,
+                                            conductedClasses: e.target.value,
+                                          }))
+                                        }
+                                        className="h-8 w-20"
+                                      />
+                                    ) : (
+                                      String(r.conductedClasses)
+                                    )}
+                                  </TableCell>
+                                  <TableCell
+                                    className={
+                                      isLow
+                                        ? "text-destructive font-semibold"
+                                        : ""
+                                    }
+                                  >
+                                    {pct.toFixed(1)}%
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <div className="flex gap-1">
+                                        <Button
+                                          size="sm"
+                                          data-ocid={`attendance.save_button.${i + 1}`}
+                                          onClick={async () => {
+                                            try {
+                                              await updateAttendance({
+                                                ...r,
+                                                attendedClasses: BigInt(
+                                                  editAttForm.attendedClasses,
+                                                ),
+                                                conductedClasses: BigInt(
+                                                  editAttForm.conductedClasses,
+                                                ),
+                                              });
+                                              toast.success("Updated!");
+                                              setEditingAttKey(null);
+                                            } catch {
+                                              toast.error("Failed to update.");
+                                            }
+                                          }}
+                                        >
+                                          Save
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          data-ocid={`attendance.cancel_button.${i + 1}`}
+                                          onClick={() => setEditingAttKey(null)}
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex gap-1">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          data-ocid={`attendance.edit_button.${i + 1}`}
+                                          onClick={() => {
+                                            setEditingAttKey(key);
+                                            setEditAttForm({
+                                              attendedClasses: String(
+                                                r.attendedClasses,
+                                              ),
+                                              conductedClasses: String(
+                                                r.conductedClasses,
+                                              ),
+                                            });
+                                          }}
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-destructive hover:text-destructive"
+                                          data-ocid={`attendance.delete_button.${i + 1}`}
+                                          onClick={async () => {
+                                            if (
+                                              !confirm(
+                                                "Delete this attendance record?",
+                                              )
+                                            )
+                                              return;
+                                            try {
+                                              await deleteAttendance(key);
+                                              toast.success("Deleted!");
+                                            } catch {
+                                              toast.error("Failed to delete.");
+                                            }
+                                          }}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                            {filtered.length === 0 && (
+                              <div
+                                data-ocid="attendance.empty_state"
+                                className="text-center py-8 text-muted-foreground"
+                              >
+                                No attendance records yet.
+                              </div>
+                            )}
+                          </TableBody>
+                        </Table>
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-between mt-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setAttPage((p) => Math.max(1, p - 1))
+                              }
+                              disabled={attPage === 1}
+                              data-ocid="attendance.pagination_prev"
+                            >
+                              Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground">
+                              Page {attPage} of {totalPages}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setAttPage((p) => Math.min(totalPages, p + 1))
+                              }
+                              disabled={attPage === totalPages}
+                              data-ocid="attendance.pagination_next"
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </CardContent>
@@ -1345,6 +1468,10 @@ function ManageMarks() {
     examinationName: "",
   });
 
+  const [marksTypeFilter, setMarksTypeFilter] = useState("all");
+  const [marksPage, setMarksPage] = useState(1);
+  const MARKS_PAGE_SIZE = 20;
+
   type PreviewRow = {
     studentName: string;
     registrationNumber: string;
@@ -1353,6 +1480,7 @@ function ManageMarks() {
     theoryPaper1: string;
     theoryPaper2: string;
     practicalMarks: string;
+    subjectFound: boolean;
   };
   type ParsedRecord = {
     studentReg: string;
@@ -1391,6 +1519,10 @@ function ManageMarks() {
         r["Practical Marks"] ?? r["PRACTICAL MARKS"] ?? "-",
       );
 
+      const matched = subjectList.find(
+        (s) => s.name.toLowerCase() === subjectName.toLowerCase(),
+      );
+
       preview.push({
         studentName,
         registrationNumber,
@@ -1399,11 +1531,8 @@ function ManageMarks() {
         theoryPaper1: theoryP1,
         theoryPaper2: theoryP2,
         practicalMarks: practicalM,
+        subjectFound: !!matched,
       });
-
-      const matched = subjectList.find(
-        (s) => s.name.toLowerCase() === subjectName.toLowerCase(),
-      );
       const subjectId = matched ? matched.id : subjectName;
       const studentReg = registrationNumber || studentName;
 
@@ -1495,6 +1624,29 @@ function ManageMarks() {
     } catch {
       toast.error("Failed to add marks.");
     }
+  };
+
+  const downloadMarksTemplate = () => {
+    const XL = (window as any).XLSX;
+    if (!XL) {
+      toast.error("Template download not ready yet. Try again in a moment.");
+      return;
+    }
+    const ws = XL.utils.aoa_to_sheet([
+      [
+        "Student Name",
+        "Registration Number",
+        "Subject",
+        "Examination Name",
+        "Theory Paper 1",
+        "Theory Paper 2",
+        "Practical Marks",
+      ],
+      ["John Doe", "2023001", "Anatomy", "Internal 1", 75, 80, 85],
+    ]);
+    const wb = XL.utils.book_new();
+    XL.utils.book_append_sheet(wb, ws, "Marks Template");
+    XL.writeFile(wb, "marks_template.xlsx");
   };
 
   return (
@@ -1617,6 +1769,17 @@ function ManageMarks() {
         </TabsContent>
 
         <TabsContent value="bulk">
+          <div className="flex justify-end mb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadMarksTemplate}
+              data-ocid="marks.upload_button"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download Template
+            </Button>
+          </div>
           <ExcelUploadCard
             title="Bulk Upload Marks"
             instructions="Each row = one student + subject. Theory has Paper 1 and Paper 2 (each out of 100). Practical Marks is a single value out of 100."
@@ -1692,6 +1855,9 @@ function ManageMarks() {
                         <th className="px-3 py-2 text-left font-medium">
                           Practical Marks
                         </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Status
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1723,6 +1889,13 @@ function ManageMarks() {
                             {row.theoryPaper2}
                           </td>
                           <td className="px-3 py-2">{row.practicalMarks}</td>
+                          <td className="px-3 py-2">
+                            {!row.subjectFound && (
+                              <span className="inline-flex items-center gap-1 text-orange-600 text-xs font-medium bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
+                                ⚠ Subject not found
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1739,13 +1912,34 @@ function ManageMarks() {
               <CardTitle>All Marks Records</CardTitle>
             </CardHeader>
             <CardContent>
-              <Input
-                data-ocid="marks.search_input"
-                placeholder="Search by registration number or subject..."
-                value={marksSearch}
-                onChange={(e) => setMarksSearch(e.target.value)}
-                className="mb-4"
-              />
+              <div className="flex flex-wrap gap-3 mb-3">
+                <Input
+                  data-ocid="marks.search_input"
+                  placeholder="Search by registration number or subject..."
+                  value={marksSearch}
+                  onChange={(e) => {
+                    setMarksSearch(e.target.value);
+                    setMarksPage(1);
+                  }}
+                  className="flex-1 min-w-[200px]"
+                />
+                <Select
+                  value={marksTypeFilter}
+                  onValueChange={(v) => {
+                    setMarksTypeFilter(v);
+                    setMarksPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-40" data-ocid="marks.select">
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="theory">Theory</SelectItem>
+                    <SelectItem value="practical">Practical</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {!allMarks ? (
                 <div
                   data-ocid="marks.loading_state"
@@ -1755,219 +1949,274 @@ function ManageMarks() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Student Reg</TableHead>
-                        <TableHead>Subject</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Exam Name</TableHead>
-                        <TableHead>Paper 1</TableHead>
-                        <TableHead>Paper 2 / Practical</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {allMarks
-                        .filter((r) => {
-                          const subjectName =
-                            (subjects ?? []).find((s) => s.id === r.subjectId)
-                              ?.name ?? r.subjectId;
-                          const search = marksSearch.toLowerCase();
-                          return (
-                            r.studentReg.toLowerCase().includes(search) ||
-                            subjectName.toLowerCase().includes(search)
-                          );
-                        })
-                        .map((r, i) => {
-                          const subjectName =
-                            (subjects ?? []).find((s) => s.id === r.subjectId)
-                              ?.name ?? r.subjectId;
-                          const key = `${r.studentReg}|${r.subjectId}|${r.marksType}`;
-                          const isEditing = editingMarksKey === key;
-                          const isTheory = r.marksType === "theory";
-                          const p1Low = Number(r.paper1) < 40;
-                          const p2Low = isTheory && Number(r.paper2) < 40;
-                          return (
-                            <TableRow
-                              key={key}
-                              data-ocid={`marks.item.${i + 1}`}
-                            >
-                              <TableCell>{r.studentReg}</TableCell>
-                              <TableCell>{subjectName}</TableCell>
-                              <TableCell className="capitalize">
-                                {r.marksType}
-                              </TableCell>
-                              <TableCell>
-                                {isEditing ? (
-                                  <Input
-                                    value={editMarksForm.examinationName}
-                                    onChange={(e) =>
-                                      setEditMarksForm((f) => ({
-                                        ...f,
-                                        examinationName: e.target.value,
-                                      }))
-                                    }
-                                    className="h-8 w-40"
-                                  />
-                                ) : (
-                                  r.examinationName || (
-                                    <span className="text-muted-foreground text-xs">
-                                      —
-                                    </span>
-                                  )
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {isEditing ? (
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    max={100}
-                                    value={editMarksForm.paper1}
-                                    onChange={(e) =>
-                                      setEditMarksForm((f) => ({
-                                        ...f,
-                                        paper1: e.target.value,
-                                      }))
-                                    }
-                                    className="h-8 w-20"
-                                  />
-                                ) : (
-                                  <span
-                                    className={
-                                      p1Low
-                                        ? "text-destructive font-semibold"
-                                        : ""
-                                    }
-                                  >
-                                    {String(r.paper1)}
-                                  </span>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {isTheory ? (
-                                  isEditing ? (
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      max={100}
-                                      value={editMarksForm.paper2}
-                                      onChange={(e) =>
-                                        setEditMarksForm((f) => ({
-                                          ...f,
-                                          paper2: e.target.value,
-                                        }))
-                                      }
-                                      className="h-8 w-20"
-                                    />
-                                  ) : (
-                                    <span
-                                      className={
-                                        p2Low
-                                          ? "text-destructive font-semibold"
-                                          : ""
-                                      }
-                                    >
-                                      {String(r.paper2)}
-                                    </span>
-                                  )
-                                ) : (
-                                  <span className="text-muted-foreground text-xs">
-                                    N/A
-                                  </span>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {isEditing ? (
-                                  <div className="flex gap-1">
-                                    <Button
-                                      size="sm"
-                                      data-ocid={`marks.save_button.${i + 1}`}
-                                      onClick={async () => {
-                                        try {
-                                          await updateMarks({
-                                            ...r,
-                                            paper1: BigInt(
-                                              editMarksForm.paper1 || "0",
-                                            ),
-                                            paper2: BigInt(
-                                              editMarksForm.paper2 || "0",
-                                            ),
-                                            examinationName:
-                                              editMarksForm.examinationName,
-                                          });
-                                          toast.success("Updated!");
-                                          setEditingMarksKey(null);
-                                        } catch {
-                                          toast.error("Failed to update.");
-                                        }
-                                      }}
-                                    >
-                                      Save
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      data-ocid={`marks.cancel_button.${i + 1}`}
-                                      onClick={() => setEditingMarksKey(null)}
-                                    >
-                                      Cancel
-                                    </Button>
-                                  </div>
-                                ) : (
-                                  <div className="flex gap-1">
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      data-ocid={`marks.edit_button.${i + 1}`}
-                                      onClick={() => {
-                                        setEditingMarksKey(key);
-                                        setEditMarksForm({
-                                          paper1: String(r.paper1),
-                                          paper2: String(r.paper2),
-                                          examinationName: r.examinationName,
-                                        });
-                                      }}
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="text-destructive hover:text-destructive"
-                                      data-ocid={`marks.delete_button.${i + 1}`}
-                                      onClick={async () => {
-                                        if (
-                                          !confirm("Delete this marks record?")
-                                        )
-                                          return;
-                                        try {
-                                          await deleteMarks(key);
-                                          toast.success("Deleted!");
-                                        } catch {
-                                          toast.error("Failed to delete.");
-                                        }
-                                      }}
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                )}
-                              </TableCell>
+                  {(() => {
+                    const filtered = allMarks.filter((r) => {
+                      const subjectName =
+                        (subjects ?? []).find((s) => s.id === r.subjectId)
+                          ?.name ?? r.subjectId;
+                      const search = marksSearch.toLowerCase();
+                      const matchesSearch =
+                        r.studentReg.toLowerCase().includes(search) ||
+                        subjectName.toLowerCase().includes(search);
+                      const matchesType =
+                        marksTypeFilter === "all" ||
+                        r.marksType === marksTypeFilter;
+                      return matchesSearch && matchesType;
+                    });
+                    const totalPages = Math.max(
+                      1,
+                      Math.ceil(filtered.length / MARKS_PAGE_SIZE),
+                    );
+                    const paginated = filtered.slice(
+                      (marksPage - 1) * MARKS_PAGE_SIZE,
+                      marksPage * MARKS_PAGE_SIZE,
+                    );
+                    return (
+                      <>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Showing {paginated.length} of {filtered.length}{" "}
+                          records
+                        </p>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Student Reg</TableHead>
+                              <TableHead>Subject</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Exam Name</TableHead>
+                              <TableHead>Paper 1</TableHead>
+                              <TableHead>Paper 2 / Practical</TableHead>
+                              <TableHead>Actions</TableHead>
                             </TableRow>
-                          );
-                        })}
-                    </TableBody>
-                  </Table>
-                  {allMarks.length === 0 && (
-                    <div
-                      data-ocid="marks.empty_state"
-                      className="text-center py-8 text-muted-foreground"
-                    >
-                      No marks records yet.
-                    </div>
-                  )}
+                          </TableHeader>
+                          <TableBody>
+                            {paginated.map((r, i) => {
+                              const subjectName =
+                                (subjects ?? []).find(
+                                  (s) => s.id === r.subjectId,
+                                )?.name ?? r.subjectId;
+                              const key = `${r.studentReg}|${r.subjectId}|${r.marksType}`;
+                              const isEditing = editingMarksKey === key;
+                              const isTheory = r.marksType === "theory";
+                              const p1Low = Number(r.paper1) < 40;
+                              const p2Low = isTheory && Number(r.paper2) < 40;
+                              return (
+                                <TableRow
+                                  key={key}
+                                  data-ocid={`marks.item.${i + 1}`}
+                                >
+                                  <TableCell>{r.studentReg}</TableCell>
+                                  <TableCell>{subjectName}</TableCell>
+                                  <TableCell className="capitalize">
+                                    {r.marksType}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <Input
+                                        value={editMarksForm.examinationName}
+                                        onChange={(e) =>
+                                          setEditMarksForm((f) => ({
+                                            ...f,
+                                            examinationName: e.target.value,
+                                          }))
+                                        }
+                                        className="h-8 w-40"
+                                      />
+                                    ) : (
+                                      r.examinationName || (
+                                        <span className="text-muted-foreground text-xs">
+                                          —
+                                        </span>
+                                      )
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={editMarksForm.paper1}
+                                        onChange={(e) =>
+                                          setEditMarksForm((f) => ({
+                                            ...f,
+                                            paper1: e.target.value,
+                                          }))
+                                        }
+                                        className="h-8 w-20"
+                                      />
+                                    ) : (
+                                      <span
+                                        className={
+                                          p1Low
+                                            ? "text-destructive font-semibold"
+                                            : ""
+                                        }
+                                      >
+                                        {String(r.paper1)}
+                                      </span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isTheory ? (
+                                      isEditing ? (
+                                        <Input
+                                          type="number"
+                                          min={0}
+                                          max={100}
+                                          value={editMarksForm.paper2}
+                                          onChange={(e) =>
+                                            setEditMarksForm((f) => ({
+                                              ...f,
+                                              paper2: e.target.value,
+                                            }))
+                                          }
+                                          className="h-8 w-20"
+                                        />
+                                      ) : (
+                                        <span
+                                          className={
+                                            p2Low
+                                              ? "text-destructive font-semibold"
+                                              : ""
+                                          }
+                                        >
+                                          {String(r.paper2)}
+                                        </span>
+                                      )
+                                    ) : (
+                                      <span className="text-muted-foreground text-xs">
+                                        N/A
+                                      </span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <div className="flex gap-1">
+                                        <Button
+                                          size="sm"
+                                          data-ocid={`marks.save_button.${i + 1}`}
+                                          onClick={async () => {
+                                            try {
+                                              await updateMarks({
+                                                ...r,
+                                                paper1: BigInt(
+                                                  editMarksForm.paper1 || "0",
+                                                ),
+                                                paper2: BigInt(
+                                                  editMarksForm.paper2 || "0",
+                                                ),
+                                                examinationName:
+                                                  editMarksForm.examinationName,
+                                              });
+                                              toast.success("Updated!");
+                                              setEditingMarksKey(null);
+                                            } catch {
+                                              toast.error("Failed to update.");
+                                            }
+                                          }}
+                                        >
+                                          Save
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          data-ocid={`marks.cancel_button.${i + 1}`}
+                                          onClick={() =>
+                                            setEditingMarksKey(null)
+                                          }
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex gap-1">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          data-ocid={`marks.edit_button.${i + 1}`}
+                                          onClick={() => {
+                                            setEditingMarksKey(key);
+                                            setEditMarksForm({
+                                              paper1: String(r.paper1),
+                                              paper2: String(r.paper2),
+                                              examinationName:
+                                                r.examinationName,
+                                            });
+                                          }}
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-destructive hover:text-destructive"
+                                          data-ocid={`marks.delete_button.${i + 1}`}
+                                          onClick={async () => {
+                                            if (
+                                              !confirm(
+                                                "Delete this marks record?",
+                                              )
+                                            )
+                                              return;
+                                            try {
+                                              await deleteMarks(key);
+                                              toast.success("Deleted!");
+                                            } catch {
+                                              toast.error("Failed to delete.");
+                                            }
+                                          }}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                            {filtered.length === 0 && (
+                              <div
+                                data-ocid="marks.empty_state"
+                                className="text-center py-8 text-muted-foreground"
+                              >
+                                No marks records yet.
+                              </div>
+                            )}
+                          </TableBody>
+                        </Table>
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-between mt-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setMarksPage((p) => Math.max(1, p - 1))
+                              }
+                              disabled={marksPage === 1}
+                              data-ocid="marks.pagination_prev"
+                            >
+                              Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground">
+                              Page {marksPage} of {totalPages}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setMarksPage((p) => Math.min(totalPages, p + 1))
+                              }
+                              disabled={marksPage === totalPages}
+                              data-ocid="marks.pagination_next"
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </CardContent>
