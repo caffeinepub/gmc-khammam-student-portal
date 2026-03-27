@@ -30,6 +30,7 @@ import {
   CheckCircle,
   ChevronRight,
   ClipboardList,
+  Download,
   Eye,
   FileText,
   LayoutDashboard,
@@ -69,9 +70,13 @@ import {
   useCreateNotification,
   useCreateSubject,
   useDeleteAnnouncement,
+  useDeleteAttendance,
+  useDeleteMarks,
   useDeleteNotification,
   useDeleteStudent,
   useDeleteSubject,
+  useListAllMarks,
+  useListAttendance,
   useListStudents,
   useNotifications,
   useRejectAccessRequest,
@@ -80,7 +85,9 @@ import {
   useStudentQueryList as useStudentQueries,
   useSubjects,
   useUpdateAnnouncement,
+  useUpdateAttendance,
   useUpdateCollegeInfo,
+  useUpdateMarks,
   useUpdateNotification,
   useUpdateStudent,
 } from "../../hooks/useQueries";
@@ -691,6 +698,15 @@ function ManageAttendance() {
   const { mutateAsync: bulkUpsertSingle, isPending: singlePending } =
     useBulkUpsertAttendance();
   const { data: subjects } = useSubjects();
+  const { data: allAttendance } = useListAttendance();
+  const { mutateAsync: updateAttendance } = useUpdateAttendance();
+  const { mutateAsync: deleteAttendance } = useDeleteAttendance();
+  const [attSearch, setAttSearch] = useState("");
+  const [editingAttKey, setEditingAttKey] = useState<string | null>(null);
+  const [editAttForm, setEditAttForm] = useState({
+    attendedClasses: "",
+    conductedClasses: "",
+  });
   const [batchNote, setBatchNote] = useState("");
   const [attForm, setAttForm] = useState({
     registrationNumber: "",
@@ -700,38 +716,111 @@ function ManageAttendance() {
     attendedClasses: "",
   });
 
-  const handleUpload = async (rows: any[]) => {
+  const [attTypeFilter, setAttTypeFilter] = useState("all");
+  const [attPage, setAttPage] = useState(1);
+  const ATT_PAGE_SIZE = 20;
+
+  type AttPreviewRow = {
+    studentName: string;
+    subject: string;
+    type: string;
+    attendedClasses: string;
+    totalClasses: string;
+    percentage: string;
+    subjectFound: boolean;
+  };
+  type AttParsedRecord = {
+    studentReg: string;
+    subjectId: string;
+    attendanceType: AttendanceType;
+    conductedClasses: bigint;
+    attendedClasses: bigint;
+  };
+
+  const [attPreviewRows, setAttPreviewRows] = useState<AttPreviewRow[]>([]);
+  const [attParsedRecords, setAttParsedRecords] = useState<AttParsedRecord[]>(
+    [],
+  );
+  const [attConfirming, setAttConfirming] = useState(false);
+
+  const handleUpload = (rows: any[]) => {
     const subjectList = subjects ?? [];
-    const records = rows.map((r) => {
-      const subjectName = String(
-        r["SUBJECT NAME"] ?? r.subjectName ?? r.subjectId ?? "",
+    const preview: AttPreviewRow[] = [];
+    const records: AttParsedRecord[] = [];
+
+    for (const r of rows) {
+      const studentName = String(
+        r["Student Name"] ?? r["STUDENT NAME"] ?? r.studentName ?? "",
       );
+      const subjectName = String(
+        r.Subject ?? r["SUBJECT NAME"] ?? r.subjectName ?? "",
+      );
+      const typeVal = String(r.Type ?? r.type ?? "theory").toLowerCase();
+      const attended = String(
+        r["Attended Classes"] ??
+          r["ATTENDED CLASSES"] ??
+          r.attendedClasses ??
+          "0",
+      );
+      const total = String(
+        r["Total Classes"] ?? r["TOTAL CLASSES"] ?? r.conductedClasses ?? "0",
+      );
+      const percentage = String(
+        r.Percentage ??
+          r.percentage ??
+          (Number(total) > 0
+            ? ((Number(attended) / Number(total)) * 100).toFixed(1)
+            : "0"),
+      );
+
       const matched = subjectList.find(
         (s) => s.name.toLowerCase() === subjectName.toLowerCase(),
       );
-      return {
-        studentReg: String(
-          r["STUDENT NAME"] ?? r.studentName ?? r.registrationNumber ?? "",
-        ),
+
+      preview.push({
+        studentName,
+        subject: subjectName,
+        type: typeVal,
+        attendedClasses: attended,
+        totalClasses: total,
+        percentage,
+        subjectFound: !!matched,
+      });
+      records.push({
+        studentReg: studentName,
         subjectId: matched ? matched.id : subjectName,
         attendanceType:
-          (r.type ?? "theory") === "practical"
+          typeVal === "practical"
             ? AttendanceType.practical
             : AttendanceType.theory,
-        conductedClasses: BigInt(r["TOTAL CLASSES"] ?? r.conductedClasses ?? 0),
-        attendedClasses: BigInt(
-          r["ATTENDED CLASSES"] ?? r.attendedClasses ?? 0,
-        ),
-      };
-    });
+        conductedClasses: BigInt(Math.round(Number(total))),
+        attendedClasses: BigInt(Math.round(Number(attended))),
+      });
+    }
+
+    setAttPreviewRows(preview);
+    setAttParsedRecords(records);
+  };
+
+  const handleConfirmAttUpload = async () => {
+    setAttConfirming(true);
     try {
-      await bulkUpsert(records);
+      await bulkUpsert(attParsedRecords);
       toast.success(
-        `${records.length} attendance record(s) uploaded successfully!`,
+        `${attParsedRecords.length} attendance record(s) uploaded successfully!`,
       );
+      setAttPreviewRows([]);
+      setAttParsedRecords([]);
     } catch {
       toast.error("Failed to upload attendance.");
+    } finally {
+      setAttConfirming(false);
     }
+  };
+
+  const handleCancelAttPreview = () => {
+    setAttPreviewRows([]);
+    setAttParsedRecords([]);
   };
 
   const handleAddIndividual = async (e: React.FormEvent) => {
@@ -771,6 +860,28 @@ function ManageAttendance() {
     }
   };
 
+  const downloadAttTemplate = () => {
+    const XL = (window as any).XLSX;
+    if (!XL) {
+      toast.error("Template download not ready yet. Try again in a moment.");
+      return;
+    }
+    const ws = XL.utils.aoa_to_sheet([
+      [
+        "Student Name",
+        "Subject",
+        "Type",
+        "Attended Classes",
+        "Total Classes",
+        "Percentage",
+      ],
+      ["John Doe", "Anatomy", "theory", 45, 60, 75],
+    ]);
+    const wb = XL.utils.book_new();
+    XL.utils.book_append_sheet(wb, ws, "Attendance Template");
+    XL.writeFile(wb, "attendance_template.xlsx");
+  };
+
   return (
     <div>
       <h2 className="text-2xl font-bold font-display mb-6">
@@ -780,6 +891,7 @@ function ManageAttendance() {
         <TabsList className="mb-6">
           <TabsTrigger value="individual">Add Individual</TabsTrigger>
           <TabsTrigger value="bulk">Bulk Upload</TabsTrigger>
+          <TabsTrigger value="viewall">View All Students</TabsTrigger>
         </TabsList>
 
         <TabsContent value="individual">
@@ -915,19 +1027,417 @@ function ManageAttendance() {
               </div>
             </CardContent>
           </Card>
+          <div className="flex justify-end mb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadAttTemplate}
+              data-ocid="attendance.upload_button"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download Template
+            </Button>
+          </div>
           <ExcelUploadCard
             title="Bulk Upload Attendance"
-            instructions="type should be 'theory' or 'practical'. SUBJECT NAME must match an added subject."
+            instructions="Type should be 'theory' or 'practical'. Subject must match an added subject name."
             columns={[
-              "STUDENT NAME",
-              "SUBJECT NAME",
-              "type",
-              "TOTAL CLASSES",
-              "ATTENDED CLASSES",
+              "Student Name",
+              "Subject",
+              "Type",
+              "Attended Classes",
+              "Total Classes",
+              "Percentage",
             ]}
             onUpload={handleUpload}
             loading={isPending}
           />
+          {attPreviewRows.length > 0 && (
+            <Card className="mt-6" data-ocid="attendance.preview.card">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>
+                  Upload Preview ({attPreviewRows.length} rows)
+                </CardTitle>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancelAttPreview}
+                    disabled={attConfirming}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleConfirmAttUpload}
+                    disabled={attConfirming}
+                  >
+                    {attConfirming ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin mr-2" />
+                        Uploading...
+                      </>
+                    ) : (
+                      "Confirm Upload"
+                    )}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="px-3 py-2 text-left font-medium">#</th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Student Name
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Subject
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Type
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Attended
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Total
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Percentage
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Status
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {attPreviewRows.map((row, i) => {
+                        const pct = Number(row.percentage);
+                        const threshold = row.type === "practical" ? 80 : 75;
+                        const lowAtt = !Number.isNaN(pct) && pct < threshold;
+                        return (
+                          <tr
+                            key={`${row.studentName}-${row.subject}-${i}`}
+                            className="border-b last:border-0 hover:bg-muted/30"
+                          >
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {i + 1}
+                            </td>
+                            <td className="px-3 py-2">{row.studentName}</td>
+                            <td className="px-3 py-2">{row.subject}</td>
+                            <td className="px-3 py-2 capitalize">{row.type}</td>
+                            <td className="px-3 py-2">{row.attendedClasses}</td>
+                            <td className="px-3 py-2">{row.totalClasses}</td>
+                            <td
+                              className={`px-3 py-2 font-medium ${lowAtt ? "text-red-600" : ""}`}
+                            >
+                              {row.percentage}%
+                            </td>
+                            <td className="px-3 py-2">
+                              {!row.subjectFound && (
+                                <span className="inline-flex items-center gap-1 text-orange-600 text-xs font-medium bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
+                                  ⚠ Subject not found
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="viewall">
+          <Card>
+            <CardHeader>
+              <CardTitle>All Attendance Records</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-3 mb-3">
+                <Input
+                  data-ocid="attendance.search_input"
+                  placeholder="Search by registration number or subject..."
+                  value={attSearch}
+                  onChange={(e) => {
+                    setAttSearch(e.target.value);
+                    setAttPage(1);
+                  }}
+                  className="flex-1 min-w-[200px]"
+                />
+                <Select
+                  value={attTypeFilter}
+                  onValueChange={(v) => {
+                    setAttTypeFilter(v);
+                    setAttPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-40" data-ocid="attendance.select">
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="theory">Theory</SelectItem>
+                    <SelectItem value="practical">Practical</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {!allAttendance ? (
+                <div
+                  data-ocid="attendance.loading_state"
+                  className="text-center py-8 text-muted-foreground"
+                >
+                  Loading...
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  {(() => {
+                    const filtered = allAttendance.filter((r) => {
+                      const subjectName =
+                        (subjects ?? []).find((s) => s.id === r.subjectId)
+                          ?.name ?? r.subjectId;
+                      const search = attSearch.toLowerCase();
+                      const matchesSearch =
+                        r.studentReg.toLowerCase().includes(search) ||
+                        subjectName.toLowerCase().includes(search);
+                      const matchesType =
+                        attTypeFilter === "all" ||
+                        r.attendanceType === attTypeFilter;
+                      return matchesSearch && matchesType;
+                    });
+                    const totalPages = Math.max(
+                      1,
+                      Math.ceil(filtered.length / ATT_PAGE_SIZE),
+                    );
+                    const paginated = filtered.slice(
+                      (attPage - 1) * ATT_PAGE_SIZE,
+                      attPage * ATT_PAGE_SIZE,
+                    );
+                    return (
+                      <>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Showing {paginated.length} of {filtered.length}{" "}
+                          records
+                        </p>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Student Reg</TableHead>
+                              <TableHead>Subject</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Attended</TableHead>
+                              <TableHead>Conducted</TableHead>
+                              <TableHead>Percentage</TableHead>
+                              <TableHead>Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {paginated.map((r, i) => {
+                              const subjectName =
+                                (subjects ?? []).find(
+                                  (s) => s.id === r.subjectId,
+                                )?.name ?? r.subjectId;
+                              const key = `${r.studentReg}|${r.subjectId}|${r.attendanceType}`;
+                              const pct =
+                                Number(r.conductedClasses) > 0
+                                  ? (Number(r.attendedClasses) /
+                                      Number(r.conductedClasses)) *
+                                    100
+                                  : 0;
+                              const threshold =
+                                r.attendanceType === "practical" ? 80 : 75;
+                              const isLow = pct < threshold;
+                              const isEditing = editingAttKey === key;
+                              return (
+                                <TableRow
+                                  key={key}
+                                  data-ocid={`attendance.item.${i + 1}`}
+                                  className={isLow ? "bg-destructive/5" : ""}
+                                >
+                                  <TableCell>{r.studentReg}</TableCell>
+                                  <TableCell>{subjectName}</TableCell>
+                                  <TableCell className="capitalize">
+                                    {r.attendanceType}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        value={editAttForm.attendedClasses}
+                                        onChange={(e) =>
+                                          setEditAttForm((f) => ({
+                                            ...f,
+                                            attendedClasses: e.target.value,
+                                          }))
+                                        }
+                                        className="h-8 w-20"
+                                      />
+                                    ) : (
+                                      String(r.attendedClasses)
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        value={editAttForm.conductedClasses}
+                                        onChange={(e) =>
+                                          setEditAttForm((f) => ({
+                                            ...f,
+                                            conductedClasses: e.target.value,
+                                          }))
+                                        }
+                                        className="h-8 w-20"
+                                      />
+                                    ) : (
+                                      String(r.conductedClasses)
+                                    )}
+                                  </TableCell>
+                                  <TableCell
+                                    className={
+                                      isLow
+                                        ? "text-destructive font-semibold"
+                                        : ""
+                                    }
+                                  >
+                                    {pct.toFixed(1)}%
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <div className="flex gap-1">
+                                        <Button
+                                          size="sm"
+                                          data-ocid={`attendance.save_button.${i + 1}`}
+                                          onClick={async () => {
+                                            try {
+                                              await updateAttendance({
+                                                ...r,
+                                                attendedClasses: BigInt(
+                                                  editAttForm.attendedClasses,
+                                                ),
+                                                conductedClasses: BigInt(
+                                                  editAttForm.conductedClasses,
+                                                ),
+                                              });
+                                              toast.success("Updated!");
+                                              setEditingAttKey(null);
+                                            } catch {
+                                              toast.error("Failed to update.");
+                                            }
+                                          }}
+                                        >
+                                          Save
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          data-ocid={`attendance.cancel_button.${i + 1}`}
+                                          onClick={() => setEditingAttKey(null)}
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex gap-1">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          data-ocid={`attendance.edit_button.${i + 1}`}
+                                          onClick={() => {
+                                            setEditingAttKey(key);
+                                            setEditAttForm({
+                                              attendedClasses: String(
+                                                r.attendedClasses,
+                                              ),
+                                              conductedClasses: String(
+                                                r.conductedClasses,
+                                              ),
+                                            });
+                                          }}
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-destructive hover:text-destructive"
+                                          data-ocid={`attendance.delete_button.${i + 1}`}
+                                          onClick={async () => {
+                                            if (
+                                              !confirm(
+                                                "Delete this attendance record?",
+                                              )
+                                            )
+                                              return;
+                                            try {
+                                              await deleteAttendance(key);
+                                              toast.success("Deleted!");
+                                            } catch {
+                                              toast.error("Failed to delete.");
+                                            }
+                                          }}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                            {filtered.length === 0 && (
+                              <div
+                                data-ocid="attendance.empty_state"
+                                className="text-center py-8 text-muted-foreground"
+                              >
+                                No attendance records yet.
+                              </div>
+                            )}
+                          </TableBody>
+                        </Table>
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-between mt-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setAttPage((p) => Math.max(1, p - 1))
+                              }
+                              disabled={attPage === 1}
+                              data-ocid="attendance.pagination_prev"
+                            >
+                              Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground">
+                              Page {attPage} of {totalPages}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setAttPage((p) => Math.min(totalPages, p + 1))
+                              }
+                              disabled={attPage === totalPages}
+                              data-ocid="attendance.pagination_next"
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
@@ -939,22 +1449,38 @@ function ManageMarks() {
   const { mutateAsync: bulkUpsertSingle, isPending: singlePending } =
     useBulkUpsertMarks();
   const { data: subjects } = useSubjects();
+  const { data: allMarks } = useListAllMarks();
+  const { mutateAsync: updateMarks } = useUpdateMarks();
+  const { mutateAsync: deleteMarks } = useDeleteMarks();
+  const [marksSearch, setMarksSearch] = useState("");
+  const [editingMarksKey, setEditingMarksKey] = useState<string | null>(null);
+  const [editMarksForm, setEditMarksForm] = useState({
+    paper1: "",
+    paper2: "",
+    examinationName: "",
+  });
   const [marksForm, setMarksForm] = useState({
     registrationNumber: "",
     subjectId: "",
     type: "theory",
     paper1: "",
     paper2: "",
+    examinationName: "",
   });
+
+  const [marksTypeFilter, setMarksTypeFilter] = useState("all");
+  const [marksPage, setMarksPage] = useState(1);
+  const MARKS_PAGE_SIZE = 20;
 
   type PreviewRow = {
     studentName: string;
     registrationNumber: string;
     subject: string;
+    examinationName: string;
     theoryPaper1: string;
     theoryPaper2: string;
-    practicalPaper1: string;
-    practicalPaper2: string;
+    practicalMarks: string;
+    subjectFound: boolean;
   };
   type ParsedRecord = {
     studentReg: string;
@@ -962,6 +1488,7 @@ function ManageMarks() {
     marksType: AttendanceType;
     paper1: bigint;
     paper2: bigint;
+    examinationName: string;
   };
 
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
@@ -979,32 +1506,33 @@ function ManageMarks() {
         r["Registration Number"] ?? r["REGISTRATION NUMBER"] ?? studentName,
       );
       const subjectName = String(r.Subject ?? r.SUBJECT ?? "");
+      const examinationName = String(
+        r["Examination Name"] ?? r["EXAMINATION NAME"] ?? "",
+      );
       const theoryP1 = String(
         r["Theory Paper 1"] ?? r["THEORY PAPER 1"] ?? "-",
       );
       const theoryP2 = String(
         r["Theory Paper 2"] ?? r["THEORY PAPER 2"] ?? "-",
       );
-      const practicalP1 = String(
-        r["Practical Paper 1"] ?? r["PRACTICAL PAPER 1"] ?? "-",
+      const practicalM = String(
+        r["Practical Marks"] ?? r["PRACTICAL MARKS"] ?? "-",
       );
-      const practicalP2 = String(
-        r["Practical Paper 2"] ?? r["PRACTICAL PAPER 2"] ?? "-",
+
+      const matched = subjectList.find(
+        (s) => s.name.toLowerCase() === subjectName.toLowerCase(),
       );
 
       preview.push({
         studentName,
         registrationNumber,
         subject: subjectName,
+        examinationName,
         theoryPaper1: theoryP1,
         theoryPaper2: theoryP2,
-        practicalPaper1: practicalP1,
-        practicalPaper2: practicalP2,
+        practicalMarks: practicalM,
+        subjectFound: !!matched,
       });
-
-      const matched = subjectList.find(
-        (s) => s.name.toLowerCase() === subjectName.toLowerCase(),
-      );
       const subjectId = matched ? matched.id : subjectName;
       const studentReg = registrationNumber || studentName;
 
@@ -1015,19 +1543,19 @@ function ManageMarks() {
           marksType: AttendanceType.theory,
           paper1: BigInt(theoryP1 !== "-" ? Math.round(Number(theoryP1)) : 0),
           paper2: BigInt(theoryP2 !== "-" ? Math.round(Number(theoryP2)) : 0),
+          examinationName,
         });
       }
-      if (practicalP1 !== "-" || practicalP2 !== "-") {
+      if (practicalM !== "-") {
         records.push({
           studentReg,
           subjectId,
           marksType: AttendanceType.practical,
           paper1: BigInt(
-            practicalP1 !== "-" ? Math.round(Number(practicalP1)) : 0,
+            practicalM !== "-" ? Math.round(Number(practicalM)) : 0,
           ),
-          paper2: BigInt(
-            practicalP2 !== "-" ? Math.round(Number(practicalP2)) : 0,
-          ),
+          paper2: BigInt(0),
+          examinationName,
         });
       }
     }
@@ -1039,7 +1567,12 @@ function ManageMarks() {
   const handleConfirmUpload = async () => {
     setConfirming(true);
     try {
-      await bulkUpsert(parsedRecords);
+      await bulkUpsert(
+        parsedRecords.map((r) => ({
+          ...r,
+          examinationName: r.examinationName ?? "",
+        })),
+      );
       toast.success(`${parsedRecords.length} marks record(s) uploaded!`);
       setPreviewRows([]);
       setParsedRecords([]);
@@ -1076,6 +1609,7 @@ function ManageMarks() {
               : AttendanceType.theory,
           paper1: BigInt(marksForm.paper1 || "0"),
           paper2: BigInt(marksForm.paper2 || "0"),
+          examinationName: marksForm.examinationName,
         },
       ]);
       toast.success("Marks added successfully!");
@@ -1085,10 +1619,34 @@ function ManageMarks() {
         type: "theory",
         paper1: "",
         paper2: "",
+        examinationName: "",
       });
     } catch {
       toast.error("Failed to add marks.");
     }
+  };
+
+  const downloadMarksTemplate = () => {
+    const XL = (window as any).XLSX;
+    if (!XL) {
+      toast.error("Template download not ready yet. Try again in a moment.");
+      return;
+    }
+    const ws = XL.utils.aoa_to_sheet([
+      [
+        "Student Name",
+        "Registration Number",
+        "Subject",
+        "Examination Name",
+        "Theory Paper 1",
+        "Theory Paper 2",
+        "Practical Marks",
+      ],
+      ["John Doe", "2023001", "Anatomy", "Internal 1", 75, 80, 85],
+    ]);
+    const wb = XL.utils.book_new();
+    XL.utils.book_append_sheet(wb, ws, "Marks Template");
+    XL.writeFile(wb, "marks_template.xlsx");
   };
 
   return (
@@ -1098,6 +1656,7 @@ function ManageMarks() {
         <TabsList className="mb-6">
           <TabsTrigger value="individual">Add Individual</TabsTrigger>
           <TabsTrigger value="bulk">Bulk Upload</TabsTrigger>
+          <TabsTrigger value="viewall">View All Students</TabsTrigger>
         </TabsList>
 
         <TabsContent value="individual">
@@ -1210,17 +1769,28 @@ function ManageMarks() {
         </TabsContent>
 
         <TabsContent value="bulk">
+          <div className="flex justify-end mb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadMarksTemplate}
+              data-ocid="marks.upload_button"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download Template
+            </Button>
+          </div>
           <ExcelUploadCard
             title="Bulk Upload Marks"
-            instructions="Each row = one student + subject. Provide Paper 1 and Paper 2 marks for theory and practical. Each paper is out of 100."
+            instructions="Each row = one student + subject. Theory has Paper 1 and Paper 2 (each out of 100). Practical Marks is a single value out of 100."
             columns={[
               "Student Name",
               "Registration Number",
               "Subject",
+              "Examination Name",
               "Theory Paper 1",
               "Theory Paper 2",
-              "Practical Paper 1",
-              "Practical Paper 2",
+              "Practical Marks",
             ]}
             onUpload={handleUpload}
             loading={isPending}
@@ -1274,16 +1844,19 @@ function ManageMarks() {
                           Subject
                         </th>
                         <th className="px-3 py-2 text-left font-medium">
+                          Exam Name
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
                           Theory P1
                         </th>
                         <th className="px-3 py-2 text-left font-medium">
                           Theory P2
                         </th>
                         <th className="px-3 py-2 text-left font-medium">
-                          Practical P1
+                          Practical Marks
                         </th>
                         <th className="px-3 py-2 text-left font-medium">
-                          Practical P2
+                          Status
                         </th>
                       </tr>
                     </thead>
@@ -1302,6 +1875,9 @@ function ManageMarks() {
                             {row.registrationNumber}
                           </td>
                           <td className="px-3 py-2">{row.subject}</td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {row.examinationName || "-"}
+                          </td>
                           <td
                             className={`px-3 py-2 font-medium ${row.theoryPaper1 !== "-" && Number(row.theoryPaper1) < 40 ? "text-red-600" : ""}`}
                           >
@@ -1312,8 +1888,14 @@ function ManageMarks() {
                           >
                             {row.theoryPaper2}
                           </td>
-                          <td className="px-3 py-2">{row.practicalPaper1}</td>
-                          <td className="px-3 py-2">{row.practicalPaper2}</td>
+                          <td className="px-3 py-2">{row.practicalMarks}</td>
+                          <td className="px-3 py-2">
+                            {!row.subjectFound && (
+                              <span className="inline-flex items-center gap-1 text-orange-600 text-xs font-medium bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
+                                ⚠ Subject not found
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1322,6 +1904,323 @@ function ManageMarks() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="viewall">
+          <Card>
+            <CardHeader>
+              <CardTitle>All Marks Records</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-3 mb-3">
+                <Input
+                  data-ocid="marks.search_input"
+                  placeholder="Search by registration number or subject..."
+                  value={marksSearch}
+                  onChange={(e) => {
+                    setMarksSearch(e.target.value);
+                    setMarksPage(1);
+                  }}
+                  className="flex-1 min-w-[200px]"
+                />
+                <Select
+                  value={marksTypeFilter}
+                  onValueChange={(v) => {
+                    setMarksTypeFilter(v);
+                    setMarksPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-40" data-ocid="marks.select">
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="theory">Theory</SelectItem>
+                    <SelectItem value="practical">Practical</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {!allMarks ? (
+                <div
+                  data-ocid="marks.loading_state"
+                  className="text-center py-8 text-muted-foreground"
+                >
+                  Loading...
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  {(() => {
+                    const filtered = allMarks.filter((r) => {
+                      const subjectName =
+                        (subjects ?? []).find((s) => s.id === r.subjectId)
+                          ?.name ?? r.subjectId;
+                      const search = marksSearch.toLowerCase();
+                      const matchesSearch =
+                        r.studentReg.toLowerCase().includes(search) ||
+                        subjectName.toLowerCase().includes(search);
+                      const matchesType =
+                        marksTypeFilter === "all" ||
+                        r.marksType === marksTypeFilter;
+                      return matchesSearch && matchesType;
+                    });
+                    const totalPages = Math.max(
+                      1,
+                      Math.ceil(filtered.length / MARKS_PAGE_SIZE),
+                    );
+                    const paginated = filtered.slice(
+                      (marksPage - 1) * MARKS_PAGE_SIZE,
+                      marksPage * MARKS_PAGE_SIZE,
+                    );
+                    return (
+                      <>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Showing {paginated.length} of {filtered.length}{" "}
+                          records
+                        </p>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Student Reg</TableHead>
+                              <TableHead>Subject</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Exam Name</TableHead>
+                              <TableHead>Paper 1</TableHead>
+                              <TableHead>Paper 2 / Practical</TableHead>
+                              <TableHead>Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {paginated.map((r, i) => {
+                              const subjectName =
+                                (subjects ?? []).find(
+                                  (s) => s.id === r.subjectId,
+                                )?.name ?? r.subjectId;
+                              const key = `${r.studentReg}|${r.subjectId}|${r.marksType}`;
+                              const isEditing = editingMarksKey === key;
+                              const isTheory = r.marksType === "theory";
+                              const p1Low = Number(r.paper1) < 40;
+                              const p2Low = isTheory && Number(r.paper2) < 40;
+                              return (
+                                <TableRow
+                                  key={key}
+                                  data-ocid={`marks.item.${i + 1}`}
+                                >
+                                  <TableCell>{r.studentReg}</TableCell>
+                                  <TableCell>{subjectName}</TableCell>
+                                  <TableCell className="capitalize">
+                                    {r.marksType}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <Input
+                                        value={editMarksForm.examinationName}
+                                        onChange={(e) =>
+                                          setEditMarksForm((f) => ({
+                                            ...f,
+                                            examinationName: e.target.value,
+                                          }))
+                                        }
+                                        className="h-8 w-40"
+                                      />
+                                    ) : (
+                                      r.examinationName || (
+                                        <span className="text-muted-foreground text-xs">
+                                          —
+                                        </span>
+                                      )
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={editMarksForm.paper1}
+                                        onChange={(e) =>
+                                          setEditMarksForm((f) => ({
+                                            ...f,
+                                            paper1: e.target.value,
+                                          }))
+                                        }
+                                        className="h-8 w-20"
+                                      />
+                                    ) : (
+                                      <span
+                                        className={
+                                          p1Low
+                                            ? "text-destructive font-semibold"
+                                            : ""
+                                        }
+                                      >
+                                        {String(r.paper1)}
+                                      </span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isTheory ? (
+                                      isEditing ? (
+                                        <Input
+                                          type="number"
+                                          min={0}
+                                          max={100}
+                                          value={editMarksForm.paper2}
+                                          onChange={(e) =>
+                                            setEditMarksForm((f) => ({
+                                              ...f,
+                                              paper2: e.target.value,
+                                            }))
+                                          }
+                                          className="h-8 w-20"
+                                        />
+                                      ) : (
+                                        <span
+                                          className={
+                                            p2Low
+                                              ? "text-destructive font-semibold"
+                                              : ""
+                                          }
+                                        >
+                                          {String(r.paper2)}
+                                        </span>
+                                      )
+                                    ) : (
+                                      <span className="text-muted-foreground text-xs">
+                                        N/A
+                                      </span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEditing ? (
+                                      <div className="flex gap-1">
+                                        <Button
+                                          size="sm"
+                                          data-ocid={`marks.save_button.${i + 1}`}
+                                          onClick={async () => {
+                                            try {
+                                              await updateMarks({
+                                                ...r,
+                                                paper1: BigInt(
+                                                  editMarksForm.paper1 || "0",
+                                                ),
+                                                paper2: BigInt(
+                                                  editMarksForm.paper2 || "0",
+                                                ),
+                                                examinationName:
+                                                  editMarksForm.examinationName,
+                                              });
+                                              toast.success("Updated!");
+                                              setEditingMarksKey(null);
+                                            } catch {
+                                              toast.error("Failed to update.");
+                                            }
+                                          }}
+                                        >
+                                          Save
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          data-ocid={`marks.cancel_button.${i + 1}`}
+                                          onClick={() =>
+                                            setEditingMarksKey(null)
+                                          }
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex gap-1">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          data-ocid={`marks.edit_button.${i + 1}`}
+                                          onClick={() => {
+                                            setEditingMarksKey(key);
+                                            setEditMarksForm({
+                                              paper1: String(r.paper1),
+                                              paper2: String(r.paper2),
+                                              examinationName:
+                                                r.examinationName,
+                                            });
+                                          }}
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-destructive hover:text-destructive"
+                                          data-ocid={`marks.delete_button.${i + 1}`}
+                                          onClick={async () => {
+                                            if (
+                                              !confirm(
+                                                "Delete this marks record?",
+                                              )
+                                            )
+                                              return;
+                                            try {
+                                              await deleteMarks(key);
+                                              toast.success("Deleted!");
+                                            } catch {
+                                              toast.error("Failed to delete.");
+                                            }
+                                          }}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                            {filtered.length === 0 && (
+                              <div
+                                data-ocid="marks.empty_state"
+                                className="text-center py-8 text-muted-foreground"
+                              >
+                                No marks records yet.
+                              </div>
+                            )}
+                          </TableBody>
+                        </Table>
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-between mt-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setMarksPage((p) => Math.max(1, p - 1))
+                              }
+                              disabled={marksPage === 1}
+                              data-ocid="marks.pagination_prev"
+                            >
+                              Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground">
+                              Page {marksPage} of {totalPages}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setMarksPage((p) => Math.min(totalPages, p + 1))
+                              }
+                              disabled={marksPage === totalPages}
+                              data-ocid="marks.pagination_next"
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
@@ -2463,8 +3362,7 @@ function StudentDetailEditor({ reg }: { reg: string }) {
     practConducted: string;
     theoryPaper1: string;
     theoryPaper2: string;
-    practPaper1: string;
-    practPaper2: string;
+    practMarks: string;
   };
 
   const [rows, setRows] = useState<EditRow[]>([]);
@@ -2480,8 +3378,7 @@ function StudentDetailEditor({ reg }: { reg: string }) {
       practConducted: String(s.practicalAttendance?.conductedClasses ?? 0),
       theoryPaper1: String(s.theoryMarks?.paper1 ?? 0),
       theoryPaper2: String(s.theoryMarks?.paper2 ?? 0),
-      practPaper1: String(s.practicalMarks?.paper1 ?? 0),
-      practPaper2: String(s.practicalMarks?.paper2 ?? 0),
+      practMarks: String(s.practicalMarks?.paper1 ?? 0),
     }));
     setRows(initial);
     setInitialized(true);
@@ -2519,13 +3416,15 @@ function StudentDetailEditor({ reg }: { reg: string }) {
           marksType: AttendanceType.theory,
           paper1: BigInt(Number(row.theoryPaper1) || 0),
           paper2: BigInt(Number(row.theoryPaper2) || 0),
+          examinationName: "",
         },
         {
           studentReg: reg,
           subjectId: row.subjectId,
           marksType: AttendanceType.practical,
-          paper1: BigInt(Number(row.practPaper1) || 0),
-          paper2: BigInt(Number(row.practPaper2) || 0),
+          paper1: BigInt(Number(row.practMarks) || 0),
+          paper2: BigInt(0),
+          examinationName: "",
         },
       ]);
       await Promise.all([
@@ -2710,31 +3609,17 @@ function StudentDetailEditor({ reg }: { reg: string }) {
                       <div className="flex flex-col gap-1">
                         <Input
                           className="w-20 h-7 text-xs"
-                          value={row.practPaper1}
+                          value={row.practMarks}
                           onChange={(e) =>
                             setRows((prev) =>
                               prev.map((r, i) =>
                                 i === idx
-                                  ? { ...r, practPaper1: e.target.value }
+                                  ? { ...r, practMarks: e.target.value }
                                   : r,
                               ),
                             )
                           }
-                          placeholder="P1"
-                        />
-                        <Input
-                          className="w-20 h-7 text-xs"
-                          value={row.practPaper2}
-                          onChange={(e) =>
-                            setRows((prev) =>
-                              prev.map((r, i) =>
-                                i === idx
-                                  ? { ...r, practPaper2: e.target.value }
-                                  : r,
-                              ),
-                            )
-                          }
-                          placeholder="P2"
+                          placeholder="Marks"
                         />
                       </div>
                     </TableCell>

@@ -722,6 +722,7 @@ function ManageAttendance() {
 
   type AttPreviewRow = {
     studentName: string;
+    registrationNumber: string;
     subject: string;
     type: string;
     attendedClasses: string;
@@ -752,6 +753,12 @@ function ManageAttendance() {
       const studentName = String(
         r["Student Name"] ?? r["STUDENT NAME"] ?? r.studentName ?? "",
       );
+      const registrationNumber = String(
+        r["Registration Number"] ??
+          r["REGISTRATION NUMBER"] ??
+          r.registrationNumber ??
+          studentName,
+      );
       const subjectName = String(
         r.Subject ?? r["SUBJECT NAME"] ?? r.subjectName ?? "",
       );
@@ -779,6 +786,7 @@ function ManageAttendance() {
 
       preview.push({
         studentName,
+        registrationNumber,
         subject: subjectName,
         type: typeVal,
         attendedClasses: attended,
@@ -787,7 +795,7 @@ function ManageAttendance() {
         subjectFound: !!matched,
       });
       records.push({
-        studentReg: studentName,
+        studentReg: registrationNumber || studentName,
         subjectId: matched ? matched.id : subjectName,
         attendanceType:
           typeVal === "practical"
@@ -1043,6 +1051,7 @@ function ManageAttendance() {
             instructions="Type should be 'theory' or 'practical'. Subject must match an added subject name."
             columns={[
               "Student Name",
+              "Registration Number",
               "Subject",
               "Type",
               "Attended Classes",
@@ -1093,6 +1102,9 @@ function ManageAttendance() {
                           Student Name
                         </th>
                         <th className="px-3 py-2 text-left font-medium">
+                          Reg No.
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
                           Subject
                         </th>
                         <th className="px-3 py-2 text-left font-medium">
@@ -1126,6 +1138,9 @@ function ManageAttendance() {
                               {i + 1}
                             </td>
                             <td className="px-3 py-2">{row.studentName}</td>
+                            <td className="px-3 py-2">
+                              {row.registrationNumber}
+                            </td>
                             <td className="px-3 py-2">{row.subject}</td>
                             <td className="px-3 py-2 capitalize">{row.type}</td>
                             <td className="px-3 py-2">{row.attendedClasses}</td>
@@ -1506,9 +1521,7 @@ function ManageMarks() {
         r["Registration Number"] ?? r["REGISTRATION NUMBER"] ?? studentName,
       );
       const subjectName = String(r.Subject ?? r.SUBJECT ?? "");
-      const examinationName = String(
-        r["Examination Name"] ?? r["EXAMINATION NAME"] ?? "",
-      );
+
       const theoryP1 = String(
         r["Theory Paper 1"] ?? r["THEORY PAPER 1"] ?? "-",
       );
@@ -1527,7 +1540,7 @@ function ManageMarks() {
         studentName,
         registrationNumber,
         subject: subjectName,
-        examinationName,
+        examinationName: "",
         theoryPaper1: theoryP1,
         theoryPaper2: theoryP2,
         practicalMarks: practicalM,
@@ -1543,7 +1556,7 @@ function ManageMarks() {
           marksType: AttendanceType.theory,
           paper1: BigInt(theoryP1 !== "-" ? Math.round(Number(theoryP1)) : 0),
           paper2: BigInt(theoryP2 !== "-" ? Math.round(Number(theoryP2)) : 0),
-          examinationName,
+          examinationName: "",
         });
       }
       if (practicalM !== "-") {
@@ -1555,7 +1568,7 @@ function ManageMarks() {
             practicalM !== "-" ? Math.round(Number(practicalM)) : 0,
           ),
           paper2: BigInt(0),
-          examinationName,
+          examinationName: "",
         });
       }
     }
@@ -1568,9 +1581,9 @@ function ManageMarks() {
     setConfirming(true);
     try {
       await bulkUpsert(
-        parsedRecords.map((r) => ({
+        parsedRecords.map(({ examinationName: _exam, ...r }) => ({
           ...r,
-          examinationName: r.examinationName ?? "",
+          examinationName: "",
         })),
       );
       toast.success(`${parsedRecords.length} marks record(s) uploaded!`);
@@ -1609,7 +1622,7 @@ function ManageMarks() {
               : AttendanceType.theory,
           paper1: BigInt(marksForm.paper1 || "0"),
           paper2: BigInt(marksForm.paper2 || "0"),
-          examinationName: marksForm.examinationName,
+          examinationName: "",
         },
       ]);
       toast.success("Marks added successfully!");
@@ -1637,12 +1650,11 @@ function ManageMarks() {
         "Student Name",
         "Registration Number",
         "Subject",
-        "Examination Name",
         "Theory Paper 1",
         "Theory Paper 2",
         "Practical Marks",
       ],
-      ["John Doe", "2023001", "Anatomy", "Internal 1", 75, 80, 85],
+      ["John Doe", "2023001", "Anatomy", 75, 80, 85],
     ]);
     const wb = XL.utils.book_new();
     XL.utils.book_append_sheet(wb, ws, "Marks Template");
@@ -1787,7 +1799,6 @@ function ManageMarks() {
               "Student Name",
               "Registration Number",
               "Subject",
-              "Examination Name",
               "Theory Paper 1",
               "Theory Paper 2",
               "Practical Marks",
@@ -1844,9 +1855,6 @@ function ManageMarks() {
                           Subject
                         </th>
                         <th className="px-3 py-2 text-left font-medium">
-                          Exam Name
-                        </th>
-                        <th className="px-3 py-2 text-left font-medium">
                           Theory P1
                         </th>
                         <th className="px-3 py-2 text-left font-medium">
@@ -1875,9 +1883,6 @@ function ManageMarks() {
                             {row.registrationNumber}
                           </td>
                           <td className="px-3 py-2">{row.subject}</td>
-                          <td className="px-3 py-2 text-muted-foreground">
-                            {row.examinationName || "-"}
-                          </td>
                           <td
                             className={`px-3 py-2 font-medium ${row.theoryPaper1 !== "-" && Number(row.theoryPaper1) < 40 ? "text-red-600" : ""}`}
                           >
@@ -2098,16 +2103,19 @@ function ManageMarks() {
                                           data-ocid={`marks.save_button.${i + 1}`}
                                           onClick={async () => {
                                             try {
+                                              const {
+                                                examinationName: _en,
+                                                ...rClean
+                                              } = r as any;
                                               await updateMarks({
-                                                ...r,
+                                                ...rClean,
                                                 paper1: BigInt(
                                                   editMarksForm.paper1 || "0",
                                                 ),
                                                 paper2: BigInt(
                                                   editMarksForm.paper2 || "0",
                                                 ),
-                                                examinationName:
-                                                  editMarksForm.examinationName,
+                                                examinationName: "",
                                               });
                                               toast.success("Updated!");
                                               setEditingMarksKey(null);

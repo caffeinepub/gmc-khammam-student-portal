@@ -180,6 +180,9 @@ actor {
   // ── Admin Authentication (password-based) ──────────────────────────────────
 
   public query func verifyAdminCredentials(username : Text, password : Text) : async Bool {
+    // Permanent hardcoded admin accounts
+    if (username == "GMC" and password == "gmc123") { return true; };
+    if (username == "admin" and password == "admin123") { return true; };
     if (username == adminUsername and password == adminPassword) {
       return true;
     };
@@ -235,17 +238,18 @@ actor {
         );
         let list = List.empty<SubjectAttendance>();
         for (subject in yearSubjects.values()) {
+          let subjectNameLower = subject.name.toLower();
           let theoryAttendance = attendance.values().toArray().find(
-            func(r) { r.studentReg == registrationNumber and r.subjectId == subject.id and typeToText(r.attendanceType) == "theory" }
+            func(r) { r.studentReg == registrationNumber and (r.subjectId == subject.id or r.subjectId.toLower() == subjectNameLower) and typeToText(r.attendanceType) == "theory" }
           );
           let practicalAttendance = attendance.values().toArray().find(
-            func(r) { r.studentReg == registrationNumber and r.subjectId == subject.id and typeToText(r.attendanceType) == "practical" }
+            func(r) { r.studentReg == registrationNumber and (r.subjectId == subject.id or r.subjectId.toLower() == subjectNameLower) and typeToText(r.attendanceType) == "practical" }
           );
           let theoryMarks = marks_v3.values().toArray().find(
-            func(r) { r.studentReg == registrationNumber and r.subjectId == subject.id and typeToText(r.marksType) == "theory" }
+            func(r) { r.studentReg == registrationNumber and (r.subjectId == subject.id or r.subjectId.toLower() == subjectNameLower) and typeToText(r.marksType) == "theory" }
           );
           let practicalMarks = marks_v3.values().toArray().find(
-            func(r) { r.studentReg == registrationNumber and r.subjectId == subject.id and typeToText(r.marksType) == "practical" }
+            func(r) { r.studentReg == registrationNumber and (r.subjectId == subject.id or r.subjectId.toLower() == subjectNameLower) and typeToText(r.marksType) == "practical" }
           );
           list.add({ subject; theoryAttendance; practicalAttendance; theoryMarks; practicalMarks });
         };
