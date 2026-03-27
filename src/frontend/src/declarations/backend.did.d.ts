@@ -49,7 +49,8 @@ export interface Dashboard {
   'student' : Student,
 }
 export interface MarksRecord {
-  'marks' : bigint,
+  'paper1' : bigint,
+  'paper2' : bigint,
   'marksType' : AttendanceType,
   'studentReg' : string,
   'subjectId' : string,

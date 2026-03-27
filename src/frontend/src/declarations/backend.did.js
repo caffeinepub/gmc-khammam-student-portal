@@ -31,7 +31,8 @@ export const AttendanceRecord = IDL.Record({
   'subjectId' : IDL.Text,
 });
 export const MarksRecord = IDL.Record({
-  'marks' : IDL.Nat,
+  'paper1' : IDL.Nat,
+  'paper2' : IDL.Nat,
   'marksType' : AttendanceType,
   'studentReg' : IDL.Text,
   'subjectId' : IDL.Text,
@@ -210,7 +211,8 @@ export const idlFactory = ({ IDL }) => {
     'subjectId' : IDL.Text,
   });
   const MarksRecord = IDL.Record({
-    'marks' : IDL.Nat,
+    'paper1' : IDL.Nat,
+    'paper2' : IDL.Nat,
     'marksType' : AttendanceType,
     'studentReg' : IDL.Text,
     'subjectId' : IDL.Text,

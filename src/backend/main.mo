@@ -12,8 +12,8 @@ actor {
   stable var adminUsername : Text = "admin";
   stable var adminPassword : Text = "admin123";
 
-  // Secondary admin accounts (approved via access requests)
-  let secondaryAdmins = Map.empty<Text, Text>(); // username -> password
+  // Secondary admin accounts (approved via access requests) - STABLE so they survive upgrades
+  stable var secondaryAdmins = Map.empty<Text, Text>(); // username -> password
 
   public type UserProfile = {
     name : Text;
@@ -53,11 +53,30 @@ actor {
     attendedClasses : Nat;
   };
 
-  public type MarksRecord = {
+  public type MarksRecordV1 = {
     studentReg : Text;
     subjectId : Text;
     marksType : AttendanceType;
     marks : Nat;
+  };
+
+  // V2: paper1/paper2, no examinationName -- kept for stable migration only
+  public type MarksRecordV2 = {
+    studentReg : Text;
+    subjectId : Text;
+    marksType : AttendanceType;
+    paper1 : Nat;
+    paper2 : Nat;
+  };
+
+  // V3: adds examinationName -- current active type
+  public type MarksRecord = {
+    studentReg : Text;
+    subjectId : Text;
+    marksType : AttendanceType;
+    paper1 : Nat;
+    paper2 : Nat;
+    examinationName : Text;
   };
 
   public type AnnouncementCategory = {
@@ -133,16 +152,18 @@ actor {
     subjects : [SubjectAttendance];
   };
 
-  // Data stores
-  let students = Map.empty<Text, Student>();
-  let subjects = Map.empty<Text, Subject>();
-  let attendance = Map.empty<Text, AttendanceRecord>();
-  let marks = Map.empty<Text, MarksRecord>();
-  let announcements = Map.empty<Text, Announcement>();
-  let notifications = Map.empty<Text, Notification>();
-  let queries = Map.empty<Text, StudentQuery>();
-  let accessRequests = Map.empty<Text, AdminAccessRequest>();
-  let userProfiles = Map.empty<Principal, UserProfile>();
+  // Data stores - all stable so they survive upgrades
+  stable var students = Map.empty<Text, Student>();
+  stable var subjects = Map.empty<Text, Subject>();
+  stable var attendance = Map.empty<Text, AttendanceRecord>();
+  stable var marks = Map.empty<Text, MarksRecordV1>();     // V1 legacy, kept for migration
+  stable var marks_v2 = Map.empty<Text, MarksRecordV2>(); // V2 legacy, kept for migration
+  stable var marks_v3 = Map.empty<Text, MarksRecord>();   // V3 current (with examinationName)
+  stable var announcements = Map.empty<Text, Announcement>();
+  stable var notifications = Map.empty<Text, Notification>();
+  stable var queries = Map.empty<Text, StudentQuery>();
+  stable var accessRequests = Map.empty<Text, AdminAccessRequest>();
+  stable var userProfiles = Map.empty<Principal, UserProfile>();
   var collegeInfo : ?CollegeInfo = null;
 
   func typeToText(t : AttendanceType) : Text {
@@ -178,7 +199,6 @@ actor {
     };
   };
 
-  // Register a new secondary admin (called when approving an access request)
   public shared func addSecondaryAdmin(username : Text, password : Text) : async () {
     secondaryAdmins.add(username, password);
   };
@@ -221,10 +241,10 @@ actor {
           let practicalAttendance = attendance.values().toArray().find(
             func(r) { r.studentReg == registrationNumber and r.subjectId == subject.id and typeToText(r.attendanceType) == "practical" }
           );
-          let theoryMarks = marks.values().toArray().find(
+          let theoryMarks = marks_v3.values().toArray().find(
             func(r) { r.studentReg == registrationNumber and r.subjectId == subject.id and typeToText(r.marksType) == "theory" }
           );
-          let practicalMarks = marks.values().toArray().find(
+          let practicalMarks = marks_v3.values().toArray().find(
             func(r) { r.studentReg == registrationNumber and r.subjectId == subject.id and typeToText(r.marksType) == "practical" }
           );
           list.add({ subject; theoryAttendance; practicalAttendance; theoryMarks; practicalMarks });
@@ -278,6 +298,10 @@ actor {
 
   // ── Admin: Attendance ──────────────────────────────────────────────────────
 
+  public query func listAttendance() : async [AttendanceRecord] {
+    attendance.values().toArray();
+  };
+
   public shared func bulkUpsertAttendance(records : [AttendanceRecord]) : async () {
     for (record in records.values()) {
       let key = record.studentReg # "|" # record.subjectId # "|" # typeToText(record.attendanceType);
@@ -285,13 +309,35 @@ actor {
     };
   };
 
+  public shared func updateAttendance(record : AttendanceRecord) : async () {
+    let key = record.studentReg # "|" # record.subjectId # "|" # typeToText(record.attendanceType);
+    attendance.add(key, record);
+  };
+
+  public shared func deleteAttendance(key : Text) : async () {
+    attendance.remove(key);
+  };
+
   // ── Admin: Marks ───────────────────────────────────────────────────────────
+
+  public query func listAllMarks() : async [MarksRecord] {
+    marks_v3.values().toArray();
+  };
 
   public shared func bulkUpsertMarks(records : [MarksRecord]) : async () {
     for (record in records.values()) {
       let key = record.studentReg # "|" # record.subjectId # "|" # typeToText(record.marksType);
-      marks.add(key, record);
+      marks_v3.add(key, record);
     };
+  };
+
+  public shared func updateMarks(record : MarksRecord) : async () {
+    let key = record.studentReg # "|" # record.subjectId # "|" # typeToText(record.marksType);
+    marks_v3.add(key, record);
+  };
+
+  public shared func deleteMarks(key : Text) : async () {
+    marks_v3.remove(key);
   };
 
   // ── Admin: Announcements ───────────────────────────────────────────────────
@@ -373,5 +419,38 @@ actor {
 
   public shared func updateCollegeInfo(info : CollegeInfo) : async () {
     collegeInfo := ?info;
+  };
+
+  // Seed hardcoded admin accounts and migrate legacy marks data
+  system func postupgrade() {
+    secondaryAdmins.add("GMC", "gmc123");
+
+    // Migrate V1 marks (single marks field) -> marks_v3
+    for (rec in marks.values()) {
+      let key = rec.studentReg # "|" # rec.subjectId # "|" # typeToText(rec.marksType);
+      marks_v3.add(key, {
+        studentReg = rec.studentReg;
+        subjectId = rec.subjectId;
+        marksType = rec.marksType;
+        paper1 = rec.marks;
+        paper2 = 0;
+        examinationName = "";
+      });
+    };
+    marks := Map.empty<Text, MarksRecordV1>();
+
+    // Migrate V2 marks (paper1/paper2, no examinationName) -> marks_v3
+    for (rec in marks_v2.values()) {
+      let key = rec.studentReg # "|" # rec.subjectId # "|" # typeToText(rec.marksType);
+      marks_v3.add(key, {
+        studentReg = rec.studentReg;
+        subjectId = rec.subjectId;
+        marksType = rec.marksType;
+        paper1 = rec.paper1;
+        paper2 = rec.paper2;
+        examinationName = "";
+      });
+    };
+    marks_v2 := Map.empty<Text, MarksRecordV2>();
   };
 };

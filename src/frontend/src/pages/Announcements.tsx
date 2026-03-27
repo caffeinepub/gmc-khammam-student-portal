@@ -1,7 +1,8 @@
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Megaphone } from "lucide-react";
+import { FileText, Megaphone } from "lucide-react";
 import { motion } from "motion/react";
 import { AnnouncementCategory } from "../backend.d";
 import { useAnnouncements } from "../hooks/useQueries";
@@ -12,6 +13,26 @@ const CATEGORY_COLORS: Record<string, string> = {
   [AnnouncementCategory.academic]: "bg-primary text-primary-foreground",
   [AnnouncementCategory.general]: "bg-muted text-muted-foreground",
 };
+
+function parseContent(content: string): {
+  text: string;
+  pdfData?: string;
+  pdfName?: string;
+} {
+  try {
+    const parsed = JSON.parse(content);
+    if (typeof parsed === "object" && parsed !== null) {
+      return {
+        text: parsed.text || "",
+        pdfData: parsed.pdfData,
+        pdfName: parsed.pdfName,
+      };
+    }
+  } catch {
+    // not JSON
+  }
+  return { text: content };
+}
 
 export default function Announcements() {
   const { data: announcements, isLoading } = useAnnouncements();
@@ -42,38 +63,52 @@ export default function Announcements() {
         <div className="space-y-4">
           {[...announcements]
             .sort((a, b) => Number(b.date - a.date))
-            .map((ann, i) => (
-              <motion.div
-                key={ann.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.05 }}
-                data-ocid={`announcements.item.${i + 1}`}
-              >
-                <Card className="shadow-card hover:shadow-nav transition-shadow">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base flex items-start justify-between gap-2">
-                      <span>{ann.title}</span>
-                      <Badge
-                        className={`text-xs shrink-0 ${CATEGORY_COLORS[ann.category] ?? ""}`}
-                      >
-                        {ann.category}
-                      </Badge>
-                    </CardTitle>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(
-                        Number(ann.date) / 1_000_000,
-                      ).toLocaleDateString("en-IN", { dateStyle: "long" })}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-foreground/80 whitespace-pre-wrap">
-                      {ann.content}
-                    </p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
+            .map((ann, i) => {
+              const { text, pdfData, pdfName } = parseContent(ann.content);
+              return (
+                <motion.div
+                  key={ann.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  data-ocid={`announcements.item.${i + 1}`}
+                >
+                  <Card className="shadow-card hover:shadow-nav transition-shadow">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-start justify-between gap-2">
+                        <span>{ann.title}</span>
+                        <Badge
+                          className={`text-xs shrink-0 ${CATEGORY_COLORS[ann.category] ?? ""}`}
+                        >
+                          {ann.category}
+                        </Badge>
+                      </CardTitle>
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(
+                          Number(ann.date) / 1_000_000,
+                        ).toLocaleDateString("en-IN", { dateStyle: "long" })}
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-foreground/80 whitespace-pre-wrap">
+                        {text}
+                      </p>
+                      {pdfData && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3 gap-2"
+                          onClick={() => window.open(pdfData, "_blank")}
+                        >
+                          <FileText size={14} />
+                          {pdfName ? `Open: ${pdfName}` : "Open PDF"}
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              );
+            })}
         </div>
       )}
     </main>

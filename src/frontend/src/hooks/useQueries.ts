@@ -308,3 +308,76 @@ export type {
   AdminAccessRequest,
   StudentQuery,
 };
+
+export function useListAttendance() {
+  const { actor, isFetching } = useActor();
+  return useQuery<AttendanceRecord[]>({
+    queryKey: ["attendance"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return (actor as any).listAttendance();
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
+export function useListAllMarks() {
+  const { actor, isFetching } = useActor();
+  return useQuery<MarksRecord[]>({
+    queryKey: ["marks"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return (actor as any).listAllMarks();
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
+export function useUpdateAttendance() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (record: AttendanceRecord) =>
+      (actor as any).updateAttendance(record),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["attendance"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+export function useDeleteAttendance() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => (actor as any).deleteAttendance(key),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["attendance"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+export function useUpdateMarks() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (record: MarksRecord) => (actor as any).updateMarks(record),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["marks"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+export function useDeleteMarks() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => (actor as any).deleteMarks(key),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["marks"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}

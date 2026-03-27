@@ -122,7 +122,8 @@ export interface CollegeInfo {
     principalName: string;
 }
 export interface MarksRecord {
-    marks: bigint;
+    paper1: bigint;
+    paper2: bigint;
     marksType: AttendanceType;
     studentReg: string;
     subjectId: string;
@@ -929,18 +930,21 @@ function from_candid_record_n31(_uploadFile: (file: ExternalBlob) => Promise<Uin
     };
 }
 function from_candid_record_n34(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    marks: bigint;
+    paper1: bigint;
+    paper2: bigint;
     marksType: _AttendanceType;
     studentReg: string;
     subjectId: string;
 }): {
-    marks: bigint;
+    paper1: bigint;
+    paper2: bigint;
     marksType: AttendanceType;
     studentReg: string;
     subjectId: string;
 } {
     return {
-        marks: value.marks,
+        paper1: value.paper1,
+        paper2: value.paper2,
         marksType: from_candid_AttendanceType_n35(_uploadFile, _downloadFile, value.marksType),
         studentReg: value.studentReg,
         subjectId: value.subjectId
@@ -1158,18 +1162,21 @@ function to_candid_UserRole_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint
     return to_candid_variant_n2(_uploadFile, _downloadFile, value);
 }
 function to_candid_record_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    marks: bigint;
+    paper1: bigint;
+    paper2: bigint;
     marksType: AttendanceType;
     studentReg: string;
     subjectId: string;
 }): {
-    marks: bigint;
+    paper1: bigint;
+    paper2: bigint;
     marksType: _AttendanceType;
     studentReg: string;
     subjectId: string;
 } {
     return {
-        marks: value.marks,
+        paper1: value.paper1,
+        paper2: value.paper2,
         marksType: to_candid_AttendanceType_n6(_uploadFile, _downloadFile, value.marksType),
         studentReg: value.studentReg,
         subjectId: value.subjectId

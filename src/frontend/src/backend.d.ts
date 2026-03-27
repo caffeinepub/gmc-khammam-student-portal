@@ -40,10 +40,12 @@ export interface CollegeInfo {
     principalName: string;
 }
 export interface MarksRecord {
-    marks: bigint;
+    paper1: bigint;
+    paper2: bigint;
     marksType: AttendanceType;
     studentReg: string;
     subjectId: string;
+    examinationName: string;
 }
 export interface Notification {
     id: string;
@@ -127,6 +129,8 @@ export interface backendInterface {
     createNotification(notification: Notification): Promise<void>;
     createSubject(subject: Subject): Promise<void>;
     deleteAnnouncement(id: string): Promise<void>;
+    deleteAttendance(key: string): Promise<void>;
+    deleteMarks(key: string): Promise<void>;
     deleteNotification(id: string): Promise<void>;
     deleteStudent(registrationNumber: string): Promise<void>;
     deleteSubject(id: string): Promise<void>;
@@ -138,7 +142,9 @@ export interface backendInterface {
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
     listAdminAccessRequests(): Promise<Array<AdminAccessRequest>>;
+    listAllMarks(): Promise<Array<MarksRecord>>;
     listAnnouncements(): Promise<Array<Announcement>>;
+    listAttendance(): Promise<Array<AttendanceRecord>>;
     listNotifications(): Promise<Array<Notification>>;
     listQueries(): Promise<Array<StudentQuery>>;
     listStudents(): Promise<Array<Student>>;
@@ -150,7 +156,9 @@ export interface backendInterface {
     submitAdminAccessRequest(requestorName: string, email: string, department: string, reason: string): Promise<string>;
     submitStudentQuery(studentReg: string, studentName: string, subject: string, message: string): Promise<string>;
     updateAnnouncement(announcement: Announcement): Promise<void>;
+    updateAttendance(record: AttendanceRecord): Promise<void>;
     updateCollegeInfo(info: CollegeInfo): Promise<void>;
+    updateMarks(record: MarksRecord): Promise<void>;
     updateNotification(notification: Notification): Promise<void>;
     updateStudent(student: Student): Promise<void>;
     updateSubject(subject: Subject): Promise<void>;

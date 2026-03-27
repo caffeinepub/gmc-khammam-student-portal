@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link, useParams } from "@tanstack/react-router";
 import { AlertCircle, BookOpen, MessageSquare, User } from "lucide-react";
 import { motion } from "motion/react";
-import type { SubjectAttendance } from "../backend.d";
+// SubjectAttendance type from backend
 import { useStudentDashboard } from "../hooks/useQueries";
 
 const MBBS_YEARS: Record<string, string> = {
@@ -73,11 +73,17 @@ function MarksDisplay({
   label,
   marks,
   max = 100,
-}: { label: string; marks: bigint | undefined; max?: number }) {
+  threshold = 50,
+}: {
+  label: string;
+  marks: bigint | undefined;
+  max?: number;
+  threshold?: number;
+}) {
   if (marks === undefined)
     return <div className="text-xs text-muted-foreground">{label}: N/A</div>;
   const val = Number(marks);
-  const isLow = val < 50;
+  const isLow = val < threshold;
   return (
     <div
       className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold ${
@@ -91,7 +97,7 @@ function MarksDisplay({
   );
 }
 
-function SubjectCard({ sa, index }: { sa: SubjectAttendance; index: number }) {
+function SubjectCard({ sa, index }: { sa: any; index: number }) {
   const theoryAtt = sa.theoryAttendance;
   const practAtt = sa.practicalAttendance;
   const theoryPct = calcPct(
@@ -102,7 +108,7 @@ function SubjectCard({ sa, index }: { sa: SubjectAttendance; index: number }) {
     practAtt?.attendedClasses,
     practAtt?.conductedClasses,
   );
-  const isAtRisk =
+  const isLowAttendance =
     (theoryPct !== null && theoryPct < 75) ||
     (practPct !== null && practPct < 80);
 
@@ -115,7 +121,7 @@ function SubjectCard({ sa, index }: { sa: SubjectAttendance; index: number }) {
     >
       <Card
         className={`shadow-card hover:shadow-nav transition-shadow ${
-          isAtRisk
+          isLowAttendance
             ? "border-l-4 border-l-destructive"
             : "border-l-4 border-l-success"
         }`}
@@ -126,11 +132,6 @@ function SubjectCard({ sa, index }: { sa: SubjectAttendance; index: number }) {
               <BookOpen size={16} className="text-primary" />
               {sa.subject.name}
             </span>
-            {isAtRisk && (
-              <Badge variant="destructive" className="text-xs">
-                At Risk
-              </Badge>
-            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -146,12 +147,41 @@ function SubjectCard({ sa, index }: { sa: SubjectAttendance; index: number }) {
             conducted={practAtt?.conductedClasses}
             threshold={80}
           />
-          <div className="flex flex-wrap gap-2 mt-2">
-            <MarksDisplay label="Theory Marks" marks={sa.theoryMarks?.marks} />
-            <MarksDisplay
-              label="Practical Marks"
-              marks={sa.practicalMarks?.marks}
-            />
+          <div className="mt-2">
+            {sa.theoryMarks?.examinationName && (
+              <div className="text-xs text-muted-foreground mb-1 font-medium">
+                Theory Exam:{" "}
+                <span className="text-foreground">
+                  {sa.theoryMarks.examinationName}
+                </span>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 mb-2">
+              <MarksDisplay
+                label="Theory Paper 1"
+                marks={sa.theoryMarks?.paper1}
+                threshold={40}
+              />
+              <MarksDisplay
+                label="Theory Paper 2"
+                marks={sa.theoryMarks?.paper2}
+                threshold={40}
+              />
+            </div>
+            {sa.practicalMarks?.examinationName && (
+              <div className="text-xs text-muted-foreground mb-1 font-medium">
+                Practical Exam:{" "}
+                <span className="text-foreground">
+                  {sa.practicalMarks.examinationName}
+                </span>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <MarksDisplay
+                label="Practical Marks"
+                marks={sa.practicalMarks?.paper1}
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -206,47 +236,6 @@ export default function StudentDashboard() {
   const yearLabel =
     MBBS_YEARS[student.year.toString()] ?? `Year ${student.year}`;
 
-  const totalTheoryPct: number[] = [];
-  for (const s of subjects) {
-    const pct = calcPct(
-      s.theoryAttendance?.attendedClasses,
-      s.theoryAttendance?.conductedClasses,
-    );
-    if (pct !== null) totalTheoryPct.push(pct);
-  }
-  const avgTheory =
-    totalTheoryPct.length > 0
-      ? (
-          totalTheoryPct.reduce((a, b) => a + b, 0) / totalTheoryPct.length
-        ).toFixed(1)
-      : "N/A";
-
-  const totalPractPct: number[] = [];
-  for (const s of subjects) {
-    const pct = calcPct(
-      s.practicalAttendance?.attendedClasses,
-      s.practicalAttendance?.conductedClasses,
-    );
-    if (pct !== null) totalPractPct.push(pct);
-  }
-  const avgPract =
-    totalPractPct.length > 0
-      ? (
-          totalPractPct.reduce((a, b) => a + b, 0) / totalPractPct.length
-        ).toFixed(1)
-      : "N/A";
-  const atRiskCount = subjects.filter((s) => {
-    const tp = calcPct(
-      s.theoryAttendance?.attendedClasses,
-      s.theoryAttendance?.conductedClasses,
-    );
-    const pp = calcPct(
-      s.practicalAttendance?.attendedClasses,
-      s.practicalAttendance?.conductedClasses,
-    );
-    return (tp !== null && tp < 75) || (pp !== null && pp < 80);
-  }).length;
-
   return (
     <main className="max-w-7xl mx-auto px-6 py-8">
       {/* Student identity */}
@@ -289,54 +278,6 @@ export default function StudentDashboard() {
           </CardContent>
         </Card>
       </motion.div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        {[
-          {
-            label: "Avg Theory Attendance",
-            value: avgTheory !== "N/A" ? `${avgTheory}%` : "N/A",
-            low: avgTheory !== "N/A" && Number(avgTheory) < 75,
-          },
-          {
-            label: "Avg Practical Attendance",
-            value: avgPract !== "N/A" ? `${avgPract}%` : "N/A",
-            low: avgPract !== "N/A" && Number(avgPract) < 80,
-          },
-          {
-            label: "Total Subjects",
-            value: subjects.length.toString(),
-            low: false,
-          },
-          {
-            label: "At Risk Subjects",
-            value: atRiskCount.toString(),
-            low: atRiskCount > 0,
-          },
-        ].map((stat, i) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: i * 0.1 }}
-          >
-            <Card
-              className={`shadow-card ${stat.low ? "border-destructive/50" : ""}`}
-            >
-              <CardContent className="p-4 text-center">
-                <div
-                  className={`text-2xl font-bold font-display ${stat.low ? "text-destructive" : "text-primary"}`}
-                >
-                  {stat.value}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {stat.label}
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
 
       {/* Subject cards */}
       <h2 className="text-xl font-bold font-display mb-4">
